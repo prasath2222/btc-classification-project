@@ -3,9 +3,14 @@ import pandas as pd
 import ta
 import pickle
 
-from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix
+)
 
 
 
@@ -27,7 +32,10 @@ params = {
 # DOWNLOAD DATA
 # =========================================
 
-response = requests.get(url, params=params)
+response = requests.get(
+    url,
+    params=params
+)
 
 data = response.json()
 
@@ -86,10 +94,23 @@ df["MACD"] = macd.macd()
 
 
 
+# MACD SIGNAL
+df["MACD_SIGNAL"] = macd.macd_signal()
+
+
+
 # EMA 20
 df["EMA_20"] = ta.trend.EMAIndicator(
     close=df["Close"],
     window=20
+).ema_indicator()
+
+
+
+# EMA 50
+df["EMA_50"] = ta.trend.EMAIndicator(
+    close=df["Close"],
+    window=50
 ).ema_indicator()
 
 
@@ -104,6 +125,13 @@ df["SMA_20"] = ta.trend.SMAIndicator(
 
 # RETURNS
 df["Returns"] = df["Close"].pct_change()
+
+
+
+# VOLATILITY
+df["Volatility"] = (
+    df["High"] - df["Low"]
+) / df["Close"]
 
 
 
@@ -134,9 +162,12 @@ X = df[[
     "Volume",
     "RSI",
     "MACD",
+    "MACD_SIGNAL",
     "EMA_20",
+    "EMA_50",
     "SMA_20",
-    "Returns"
+    "Returns",
+    "Volatility"
 ]]
 
 
@@ -163,10 +194,17 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 
 # =========================================
-# MODEL
+# XGBOOST MODEL
 # =========================================
 
-model = RandomForestClassifier()
+model = XGBClassifier(
+    n_estimators=300,
+    max_depth=6,
+    learning_rate=0.03,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    random_state=42
+)
 
 
 
@@ -174,7 +212,10 @@ model = RandomForestClassifier()
 # TRAIN MODEL
 # =========================================
 
-model.fit(X_train, y_train)
+model.fit(
+    X_train,
+    y_train
+)
 
 
 
@@ -182,7 +223,9 @@ model.fit(X_train, y_train)
 # PREDICT
 # =========================================
 
-predictions = model.predict(X_test)
+predictions = model.predict(
+    X_test
+)
 
 
 
@@ -195,7 +238,38 @@ accuracy = accuracy_score(
     predictions
 )
 
-print("Accuracy:", accuracy)
+print("\nAccuracy:")
+print(accuracy)
+
+
+
+# =========================================
+# CLASSIFICATION REPORT
+# =========================================
+
+print("\nClassification Report:")
+
+print(
+    classification_report(
+        y_test,
+        predictions
+    )
+)
+
+
+
+# =========================================
+# CONFUSION MATRIX
+# =========================================
+
+print("\nConfusion Matrix:")
+
+print(
+    confusion_matrix(
+        y_test,
+        predictions
+    )
+)
 
 
 
@@ -208,4 +282,4 @@ pickle.dump(
     open("btc_model.pkl", "wb")
 )
 
-print("Model saved as btc_model.pkl")
+print("\nModel saved as btc_model.pkl")
