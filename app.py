@@ -44,8 +44,21 @@ model = pickle.load(
 df = yf.download(
     "BTC-USD",
     period="300d",
-    interval="1d"
+    interval="1d",
+    auto_adjust=True
 )
+
+
+
+# =====================================
+# FIX MULTI-INDEX COLUMNS
+# =====================================
+
+if isinstance(df.columns, pd.MultiIndex):
+
+    df.columns = (
+        df.columns.get_level_values(0)
+    )
 
 
 
@@ -72,7 +85,7 @@ df = df[[
 
 
 # =====================================
-# FLOAT CONVERSION
+# CONVERT TO FLOAT
 # =====================================
 
 for col in [
@@ -83,70 +96,105 @@ for col in [
     "Volume"
 ]:
 
-    df[col] = df[col].astype(float)
+    df[col] = pd.to_numeric(
+        df[col],
+        errors="coerce"
+    )
 
 
 
 # =====================================
-# INDICATORS
+# FORCE 1D SERIES
 # =====================================
 
+close_series = (
+    df["Close"].squeeze()
+)
+
+
+
+# =====================================
 # RSI
+# =====================================
+
 df["RSI"] = ta.momentum.RSIIndicator(
-    close=df["Close"]
+    close=close_series
 ).rsi()
 
 
 
+# =====================================
 # MACD
+# =====================================
+
 macd = ta.trend.MACD(
-    close=df["Close"]
+    close=close_series
 )
 
 df["MACD"] = macd.macd()
 
-df["MACD_SIGNAL"] = macd.macd_signal()
+df["MACD_SIGNAL"] = (
+    macd.macd_signal()
+)
 
 
 
+# =====================================
 # EMA 20
+# =====================================
+
 df["EMA_20"] = ta.trend.EMAIndicator(
-    close=df["Close"],
+    close=close_series,
     window=20
 ).ema_indicator()
 
 
 
+# =====================================
 # EMA 50
+# =====================================
+
 df["EMA_50"] = ta.trend.EMAIndicator(
-    close=df["Close"],
+    close=close_series,
     window=50
 ).ema_indicator()
 
 
 
+# =====================================
 # SMA 20
+# =====================================
+
 df["SMA_20"] = ta.trend.SMAIndicator(
-    close=df["Close"],
+    close=close_series,
     window=20
 ).sma_indicator()
 
 
 
+# =====================================
 # RETURNS
-df["Returns"] = df["Close"].pct_change()
+# =====================================
 
-
-
-# VOLATILITY
-df["Volatility"] = (
-    df["High"] - df["Low"]
-) / df["Close"]
+df["Returns"] = (
+    close_series.pct_change()
+)
 
 
 
 # =====================================
-# DROP EMPTY ROWS
+# VOLATILITY
+# =====================================
+
+df["Volatility"] = (
+    (df["High"] - df["Low"])
+    / close_series
+)
+
+
+
+# =====================================
+# REMOVE EMPTY ROWS
 # =====================================
 
 df.dropna(inplace=True)
@@ -173,7 +221,7 @@ latest = df[[
 
 
 # =====================================
-# PREDICTION
+# MODEL PREDICTION
 # =====================================
 
 prediction = model.predict(
@@ -183,10 +231,12 @@ prediction = model.predict(
 
 
 # =====================================
-# CURRENT PRICE
+# CURRENT BTC PRICE
 # =====================================
 
-current_price = df["Close"].iloc[-1]
+current_price = (
+    close_series.iloc[-1]
+)
 
 st.metric(
     "Current BTC Price",
@@ -214,16 +264,22 @@ else:
 
 
 # =====================================
-# CHARTS
+# BTC PRICE CHART
 # =====================================
 
-st.subheader("BTC Close Price")
+st.subheader(
+    "BTC Close Price"
+)
 
 st.line_chart(
-    df["Close"]
+    close_series
 )
 
 
+
+# =====================================
+# RSI CHART
+# =====================================
 
 st.subheader("RSI")
 
@@ -232,6 +288,10 @@ st.line_chart(
 )
 
 
+
+# =====================================
+# MACD CHART
+# =====================================
 
 st.subheader("MACD")
 
@@ -245,7 +305,7 @@ st.line_chart(
 
 
 # =====================================
-# TABLE
+# LATEST DATA TABLE
 # =====================================
 
 st.subheader(
