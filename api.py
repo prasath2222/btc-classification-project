@@ -2,8 +2,8 @@ from fastapi import FastAPI
 
 import pickle
 import pandas as pd
-import requests
 import ta
+import yfinance as yf
 
 
 
@@ -48,77 +48,46 @@ def predict():
 
 
     # =========================================
-    # COINGECKO API
+    # DOWNLOAD BTC DATA
     # =========================================
 
-    url = (
-        "https://api.coingecko.com/api/v3/"
-        "coins/bitcoin/market_chart"
-    )
-
-    params = {
-        "vs_currency": "usd",
-        "days": 300,
-        "interval": "daily"
-    }
-
-
-
-    # =========================================
-    # DOWNLOAD DATA
-    # =========================================
-
-    response = requests.get(
-        url,
-        params=params
-    )
-
-    data = response.json()
-
-
-
-    # =========================================
-    # PRICE DATA
-    # =========================================
-
-    prices = data["prices"]
-
-
-
-    # =========================================
-    # DATAFRAME
-    # =========================================
-
-    df = pd.DataFrame(
-        prices,
-        columns=["timestamp", "Close"]
+    df = yf.download(
+        "BTC-USD",
+        period="300d",
+        interval="1d"
     )
 
 
 
     # =========================================
-    # CLOSE PRICE
+    # RESET INDEX
     # =========================================
 
-    df["Close"] = df["Close"].astype(float)
+    df.reset_index(inplace=True)
 
 
 
     # =========================================
-    # DUMMY OHLCV DATA
+    # KEEP NEEDED COLUMNS
     # =========================================
 
-    df["Open"] = df["Close"]
+    df = df[[
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume"
+    ]]
 
-    df["High"] = (
-        df["Close"] * 1.01
-    )
 
-    df["Low"] = (
-        df["Close"] * 0.99
-    )
 
-    df["Volume"] = 1000
+    # =========================================
+    # FLOAT CONVERSION
+    # =========================================
+
+    for col in df.columns:
+
+        df[col] = df[col].astype(float)
 
 
 
@@ -237,9 +206,11 @@ def predict():
     # =========================================
 
     if prediction[0] == 1:
+
         signal = "UP"
 
     else:
+
         signal = "DOWN"
 
 
