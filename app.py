@@ -38,15 +38,18 @@ model = pickle.load(
 
 
 # =====================================
-# BINANCE API
+# COINGECKO API
 # =====================================
 
-url = "https://api.binance.com/api/v3/klines"
+url = (
+    "https://api.coingecko.com/api/v3/"
+    "coins/bitcoin/market_chart"
+)
 
 params = {
-    "symbol": "BTCUSDT",
-    "interval": "1d",
-    "limit": 300
+    "vs_currency": "usd",
+    "days": 300,
+    "interval": "daily"
 }
 
 
@@ -68,9 +71,9 @@ data = response.json()
 # CHECK API
 # =====================================
 
-if not isinstance(data, list):
+if "prices" not in data:
 
-    st.error("Binance API Error")
+    st.error("API Error")
     st.write(data)
     st.stop()
 
@@ -80,37 +83,15 @@ if not isinstance(data, list):
 # CREATE DATAFRAME
 # =====================================
 
+prices = data["prices"]
+
 df = pd.DataFrame(
-    data,
+    prices,
     columns=[
         "Time",
-        "Open",
-        "High",
-        "Low",
-        "Close",
-        "Volume",
-        "CloseTime",
-        "QuoteAssetVolume",
-        "Trades",
-        "TakerBuyBase",
-        "TakerBuyQuote",
-        "Ignore"
+        "Close"
     ]
 )
-
-
-
-# =====================================
-# KEEP NEEDED COLUMNS
-# =====================================
-
-df = df[[
-    "Open",
-    "High",
-    "Low",
-    "Close",
-    "Volume"
-]]
 
 
 
@@ -118,9 +99,25 @@ df = df[[
 # FLOAT CONVERSION
 # =====================================
 
-for col in df.columns:
+df["Close"] = df["Close"].astype(float)
 
-    df[col] = df[col].astype(float)
+
+
+# =====================================
+# CREATE DUMMY COLUMNS
+# =====================================
+
+df["Open"] = df["Close"]
+
+df["High"] = (
+    df["Close"] * 1.01
+)
+
+df["Low"] = (
+    df["Close"] * 0.99
+)
+
+df["Volume"] = 1000
 
 
 
