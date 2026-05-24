@@ -62,7 +62,6 @@ df.reset_index(inplace=True)
 # =====================================
 
 df = df[[
-    "Date",
     "Open",
     "High",
     "Low",
