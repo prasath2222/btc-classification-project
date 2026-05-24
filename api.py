@@ -16,7 +16,7 @@ app = FastAPI()
 
 
 # =========================================
-# LOAD MODEL
+# LOAD TRAINED MODEL
 # =========================================
 
 model = pickle.load(
@@ -26,7 +26,7 @@ model = pickle.load(
 
 
 # =========================================
-# HOME
+# HOME ROUTE
 # =========================================
 
 @app.get("/")
@@ -39,7 +39,7 @@ def home():
 
 
 # =========================================
-# PREDICT ENDPOINT
+# PREDICTION ROUTE
 # =========================================
 
 @app.get("/predict")
@@ -54,8 +54,19 @@ def predict():
     df = yf.download(
         "BTC-USD",
         period="300d",
-        interval="1d"
+        interval="1d",
+        auto_adjust=True
     )
+
+
+
+    # =========================================
+    # FIX MULTI-INDEX COLUMNS
+    # =========================================
+
+    if isinstance(df.columns, pd.MultiIndex):
+
+        df.columns = df.columns.get_level_values(0)
 
 
 
@@ -82,12 +93,25 @@ def predict():
 
 
     # =========================================
-    # FLOAT CONVERSION
+    # CONVERT TO FLOAT
     # =========================================
 
     for col in df.columns:
 
-        df[col] = df[col].astype(float)
+        df[col] = (
+            pd.to_numeric(
+                df[col],
+                errors="coerce"
+            )
+        )
+
+
+
+    # =========================================
+    # FORCE 1D SERIES
+    # =========================================
+
+    close_series = df["Close"].squeeze()
 
 
 
@@ -96,7 +120,7 @@ def predict():
     # =========================================
 
     df["RSI"] = ta.momentum.RSIIndicator(
-        close=df["Close"]
+        close=close_series
     ).rsi()
 
 
@@ -106,39 +130,45 @@ def predict():
     # =========================================
 
     macd = ta.trend.MACD(
-        close=df["Close"]
+        close=close_series
     )
 
     df["MACD"] = macd.macd()
 
-    df["MACD_SIGNAL"] = macd.macd_signal()
+    df["MACD_SIGNAL"] = (
+        macd.macd_signal()
+    )
 
 
 
     # =========================================
-    # EMA
+    # EMA 20
     # =========================================
 
     df["EMA_20"] = ta.trend.EMAIndicator(
-        close=df["Close"],
+        close=close_series,
         window=20
     ).ema_indicator()
 
 
 
+    # =========================================
+    # EMA 50
+    # =========================================
+
     df["EMA_50"] = ta.trend.EMAIndicator(
-        close=df["Close"],
+        close=close_series,
         window=50
     ).ema_indicator()
 
 
 
     # =========================================
-    # SMA
+    # SMA 20
     # =========================================
 
     df["SMA_20"] = ta.trend.SMAIndicator(
-        close=df["Close"],
+        close=close_series,
         window=20
     ).sma_indicator()
 
@@ -149,7 +179,7 @@ def predict():
     # =========================================
 
     df["Returns"] = (
-        df["Close"].pct_change()
+        close_series.pct_change()
     )
 
 
@@ -159,21 +189,22 @@ def predict():
     # =========================================
 
     df["Volatility"] = (
-        df["High"] - df["Low"]
-    ) / df["Close"]
+        (df["High"] - df["Low"])
+        / close_series
+    )
 
 
 
     # =========================================
-    # CLEAN NAN VALUES
+    # REMOVE EMPTY ROWS
     # =========================================
 
-    df = df.dropna()
+    df.dropna(inplace=True)
 
 
 
     # =========================================
-    # FEATURES
+    # MODEL FEATURES
     # =========================================
 
     latest = df[[
@@ -192,7 +223,7 @@ def predict():
 
 
     # =========================================
-    # PREDICT
+    # AI PREDICTION
     # =========================================
 
     prediction = model.predict(
@@ -202,7 +233,7 @@ def predict():
 
 
     # =========================================
-    # SIGNAL
+    # SIGNAL RESULT
     # =========================================
 
     if prediction[0] == 1:
@@ -216,13 +247,13 @@ def predict():
 
 
     # =========================================
-    # RETURN JSON
+    # RETURN RESULT
     # =========================================
 
     return {
 
         "btc_price":
-        float(df["Close"].iloc[-1]),
+        float(close_series.iloc[-1]),
 
         "prediction":
         signal,
