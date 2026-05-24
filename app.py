@@ -68,17 +68,12 @@ data = response.json()
 # CREATE DATAFRAME
 # =========================================
 
-df = pd.DataFrame([data])
+df = pd.DataFrame(data)
 
-
-
-# =========================================
-# SELECT COLUMNS
-# =========================================
-
-df = df[["RSI","MACD","EMA","SMA","Returns"]]
+df = df.iloc[:, 0:6]
 
 df.columns = [
+    "Time",
     "Open",
     "High",
     "Low",
@@ -92,7 +87,13 @@ df.columns = [
 # CONVERT TO FLOAT
 # =========================================
 
-for col in df.columns:
+for col in [
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume"
+]:
     df[col] = df[col].astype(float)
 
 
