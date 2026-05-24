@@ -1,6 +1,7 @@
 import requests
 import pandas as pd
 import ta
+import pickle
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
@@ -85,7 +86,7 @@ df["MACD"] = macd.macd()
 
 
 
-# EMA
+# EMA 20
 df["EMA_20"] = ta.trend.EMAIndicator(
     close=df["Close"],
     window=20
@@ -93,7 +94,7 @@ df["EMA_20"] = ta.trend.EMAIndicator(
 
 
 
-# SMA
+# SMA 20
 df["SMA_20"] = ta.trend.SMAIndicator(
     close=df["Close"],
     window=20
@@ -155,7 +156,8 @@ y = df["target"]
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
-    test_size=0.2
+    test_size=0.2,
+    random_state=42
 )
 
 
@@ -169,7 +171,7 @@ model = RandomForestClassifier()
 
 
 # =========================================
-# TRAIN
+# TRAIN MODEL
 # =========================================
 
 model.fit(X_train, y_train)
@@ -194,3 +196,16 @@ accuracy = accuracy_score(
 )
 
 print("Accuracy:", accuracy)
+
+
+
+# =========================================
+# SAVE MODEL
+# =========================================
+
+pickle.dump(
+    model,
+    open("btc_model.pkl", "wb")
+)
+
+print("Model saved as btc_model.pkl")
