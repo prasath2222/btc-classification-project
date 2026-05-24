@@ -2,9 +2,9 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 import pandas as pd
-import requests
 import ta
 import pickle
+import yfinance as yf
 
 
 
@@ -13,7 +13,7 @@ import pickle
 # =====================================
 
 st_autorefresh(
-    interval=60000,
+    interval=300000,
     key="btc_refresh"
 )
 
@@ -38,60 +38,37 @@ model = pickle.load(
 
 
 # =====================================
-# COINGECKO API
+# DOWNLOAD BTC DATA
 # =====================================
 
-url = (
-    "https://api.coingecko.com/api/v3/"
-    "coins/bitcoin/market_chart"
+df = yf.download(
+    "BTC-USD",
+    period="300d",
+    interval="1d"
 )
 
-params = {
-    "vs_currency": "usd",
-    "days": 300,
-    "interval": "daily"
-}
+
+
+# =====================================
+# RESET INDEX
+# =====================================
+
+df.reset_index(inplace=True)
 
 
 
 # =====================================
-# GET DATA
+# KEEP NEEDED COLUMNS
 # =====================================
 
-response = requests.get(
-    url,
-    params=params
-)
-
-data = response.json()
-
-
-
-# =====================================
-# CHECK API
-# =====================================
-
-if "prices" not in data:
-
-    st.error("API Error")
-    st.write(data)
-    st.stop()
-
-
-
-# =====================================
-# CREATE DATAFRAME
-# =====================================
-
-prices = data["prices"]
-
-df = pd.DataFrame(
-    prices,
-    columns=[
-        "Time",
-        "Close"
-    ]
-)
+df = df[[
+    "Date",
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume"
+]]
 
 
 
@@ -99,25 +76,15 @@ df = pd.DataFrame(
 # FLOAT CONVERSION
 # =====================================
 
-df["Close"] = df["Close"].astype(float)
+for col in [
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume"
+]:
 
-
-
-# =====================================
-# CREATE DUMMY COLUMNS
-# =====================================
-
-df["Open"] = df["Close"]
-
-df["High"] = (
-    df["Close"] * 1.01
-)
-
-df["Low"] = (
-    df["Close"] * 0.99
-)
-
-df["Volume"] = 1000
+    df[col] = df[col].astype(float)
 
 
 
