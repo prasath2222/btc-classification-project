@@ -47,18 +47,27 @@ def predict():
 
 
 
-    # BINANCE API
-    url = "https://api.binance.com/api/v3/klines"
+    # =========================================
+    # COINGECKO API
+    # =========================================
+
+    url = (
+        "https://api.coingecko.com/api/v3/"
+        "coins/bitcoin/market_chart"
+    )
 
     params = {
-        "symbol": "BTCUSDT",
-        "interval": "1d",
-        "limit": 300
+        "vs_currency": "usd",
+        "days": 300,
+        "interval": "daily"
     }
 
 
 
+    # =========================================
     # DOWNLOAD DATA
+    # =========================================
+
     response = requests.get(
         url,
         params=params
@@ -68,38 +77,65 @@ def predict():
 
 
 
+    # =========================================
+    # PRICE DATA
+    # =========================================
+
+    prices = data["prices"]
+
+
+
+    # =========================================
     # DATAFRAME
-    df = pd.DataFrame(data)
+    # =========================================
+
+    df = pd.DataFrame(
+        prices,
+        columns=["timestamp", "Close"]
+    )
 
 
 
-    # SELECT COLUMNS
-    df = df[[1,2,3,4,5]]
+    # =========================================
+    # CLOSE PRICE
+    # =========================================
 
-    df.columns = [
-        "Open",
-        "High",
-        "Low",
-        "Close",
-        "Volume"
-    ]
+    df["Close"] = df["Close"].astype(float)
 
 
 
-    # FLOAT
-    for col in df.columns:
-        df[col] = df[col].astype(float)
+    # =========================================
+    # DUMMY OHLCV DATA
+    # =========================================
+
+    df["Open"] = df["Close"]
+
+    df["High"] = (
+        df["Close"] * 1.01
+    )
+
+    df["Low"] = (
+        df["Close"] * 0.99
+    )
+
+    df["Volume"] = 1000
 
 
 
+    # =========================================
     # RSI
+    # =========================================
+
     df["RSI"] = ta.momentum.RSIIndicator(
         close=df["Close"]
     ).rsi()
 
 
 
+    # =========================================
     # MACD
+    # =========================================
+
     macd = ta.trend.MACD(
         close=df["Close"]
     )
@@ -110,7 +146,10 @@ def predict():
 
 
 
+    # =========================================
     # EMA
+    # =========================================
+
     df["EMA_20"] = ta.trend.EMAIndicator(
         close=df["Close"],
         window=20
@@ -125,7 +164,10 @@ def predict():
 
 
 
+    # =========================================
     # SMA
+    # =========================================
+
     df["SMA_20"] = ta.trend.SMAIndicator(
         close=df["Close"],
         window=20
@@ -133,26 +175,38 @@ def predict():
 
 
 
+    # =========================================
     # RETURNS
+    # =========================================
+
     df["Returns"] = (
         df["Close"].pct_change()
     )
 
 
 
+    # =========================================
     # VOLATILITY
+    # =========================================
+
     df["Volatility"] = (
         df["High"] - df["Low"]
     ) / df["Close"]
 
 
 
-    # CLEAN
+    # =========================================
+    # CLEAN NAN VALUES
+    # =========================================
+
     df = df.dropna()
 
 
 
+    # =========================================
     # FEATURES
+    # =========================================
+
     latest = df[[
         "Close",
         "Volume",
@@ -168,22 +222,32 @@ def predict():
 
 
 
+    # =========================================
     # PREDICT
+    # =========================================
+
     prediction = model.predict(
         latest
     )
 
 
 
-    # RESULT
+    # =========================================
+    # SIGNAL
+    # =========================================
+
     if prediction[0] == 1:
         signal = "UP"
+
     else:
         signal = "DOWN"
 
 
 
+    # =========================================
     # RETURN JSON
+    # =========================================
+
     return {
 
         "btc_price":
