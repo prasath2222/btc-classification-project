@@ -68,7 +68,7 @@ data = response.json()
 # CREATE DATAFRAME
 # =========================================
 
-df = pd.DataFrame(data)
+df = pd.DataFrame([data])
 
 
 
