@@ -1,4 +1,10 @@
 pandas
-scikit-learn
-requests
 numpy
+scikit-learn
+xgboost
+requests
+ta
+streamlit
+streamlit-autorefresh
+fastapi
+uvicorn
