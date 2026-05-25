@@ -1,216 +1,315 @@
-import requests
 import pandas as pd
 import ta
 import pickle
+import yfinance as yf
 
 from xgboost import XGBClassifier
-
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix
+from sklearn.metrics import accuracy_score
+
+
+
+print("Downloading BTC data...")
+
+df = yf.download(
+    "BTC-USD",
+    period="700d",
+    interval="1h",
+    auto_adjust=True
 )
 
 
 
-# =========================================
-# BINANCE API
-# =========================================
+# ====================================
+# FIX MULTI INDEX
+# ====================================
 
-url = "https://api.binance.com/api/v3/klines"
+if isinstance(df.columns, pd.MultiIndex):
 
-params = {
-    "symbol": "BTCUSDT",
-    "interval": "1d",
-    "limit": 1000
-}
+    df.columns = df.columns.get_level_values(0)
 
 
 
-# =========================================
-# DOWNLOAD DATA
-# =========================================
-
-response = requests.get(
-    url,
-    params=params
-)
-
-data = response.json()
+df.reset_index(inplace=True)
 
 
 
-# =========================================
-# CREATE DATAFRAME
-# =========================================
+# ====================================
+# KEEP COLUMNS
+# ====================================
 
-df = pd.DataFrame(data)
-
-
-
-# =========================================
-# SELECT COLUMNS
-# =========================================
-
-df = df[[1,2,3,4,5]]
-
-df.columns = [
+df = df[[
     "Open",
     "High",
     "Low",
     "Close",
     "Volume"
-]
+]].copy()
 
 
 
-# =========================================
-# CONVERT TO FLOAT
-# =========================================
+# ====================================
+# FLOAT
+# ====================================
 
 for col in df.columns:
-    df[col] = df[col].astype(float)
+
+    df[col] = pd.to_numeric(
+        df[col],
+        errors="coerce"
+    )
 
 
 
-# =========================================
-# TECHNICAL INDICATORS
-# =========================================
+df.dropna(inplace=True)
 
+
+
+# ====================================
+# SERIES
+# ====================================
+
+close = df["Close"].squeeze()
+
+high = df["High"].squeeze()
+
+low = df["Low"].squeeze()
+
+volume = df["Volume"].squeeze()
+
+
+
+print("Creating indicators...")
+
+
+
+# ====================================
 # RSI
+# ====================================
+
 df["RSI"] = ta.momentum.RSIIndicator(
-    close=df["Close"]
+    close=close,
+    window=14
 ).rsi()
 
 
 
+# ====================================
 # MACD
-macd = ta.trend.MACD(
-    close=df["Close"]
-)
+# ====================================
+
+macd = ta.trend.MACD(close=close)
 
 df["MACD"] = macd.macd()
 
-
-
-# MACD SIGNAL
 df["MACD_SIGNAL"] = macd.macd_signal()
 
+df["MACD_DIFF"] = (
+    df["MACD"] -
+    df["MACD_SIGNAL"]
+)
 
 
-# EMA 20
+
+# ====================================
+# EMA
+# ====================================
+
 df["EMA_20"] = ta.trend.EMAIndicator(
-    close=df["Close"],
+    close=close,
     window=20
 ).ema_indicator()
 
 
 
-# EMA 50
 df["EMA_50"] = ta.trend.EMAIndicator(
-    close=df["Close"],
+    close=close,
     window=50
 ).ema_indicator()
 
 
 
-# SMA 20
+# ====================================
+# SMA
+# ====================================
+
 df["SMA_20"] = ta.trend.SMAIndicator(
-    close=df["Close"],
+    close=close,
     window=20
 ).sma_indicator()
 
 
 
+# ====================================
 # RETURNS
-df["Returns"] = df["Close"].pct_change()
+# ====================================
+
+df["Returns"] = (
+    close.pct_change()
+)
 
 
 
+# ====================================
 # VOLATILITY
+# ====================================
+
 df["Volatility"] = (
-    df["High"] - df["Low"]
-) / df["Close"]
+    high - low
+) / close
 
 
 
-# =========================================
+# ====================================
+# ATR
+# ====================================
+
+df["ATR"] = ta.volatility.AverageTrueRange(
+    high=high,
+    low=low,
+    close=close,
+    window=14
+).average_true_range()
+
+
+
+# ====================================
+# BOLLINGER
+# ====================================
+
+bb = ta.volatility.BollingerBands(
+    close=close,
+    window=20
+)
+
+df["BB_HIGH"] = bb.bollinger_hband()
+
+df["BB_LOW"] = bb.bollinger_lband()
+
+df["BB_WIDTH"] = (
+    df["BB_HIGH"] -
+    df["BB_LOW"]
+)
+
+
+
+# ====================================
+# STOCH
+# ====================================
+
+stoch = ta.momentum.StochasticOscillator(
+    high=high,
+    low=low,
+    close=close,
+    window=14
+)
+
+df["STOCH"] = stoch.stoch()
+
+df["STOCH_SIGNAL"] = (
+    stoch.stoch_signal()
+)
+
+
+
+# ====================================
+# VOLUME CHANGE
+# ====================================
+
+df["Volume_Change"] = (
+    volume.pct_change()
+)
+
+
+
+# ====================================
 # TARGET
-# =========================================
+# ====================================
 
-df["target"] = (
-    df["Close"].shift(-1) > df["Close"]
+df["Target"] = (
+    df["Close"].shift(-1) >
+    df["Close"]
 ).astype(int)
 
 
 
-# =========================================
-# REMOVE EMPTY ROWS
-# =========================================
+# ====================================
+# CLEAN
+# ====================================
 
-df = df.dropna()
+df.dropna(inplace=True)
 
 
 
-# =========================================
+print("Preparing features...")
+
+
+
+# ====================================
 # FEATURES
-# =========================================
+# ====================================
 
-X = df[[
+features = [
+
     "Close",
     "Volume",
     "RSI",
     "MACD",
     "MACD_SIGNAL",
+    "MACD_DIFF",
     "EMA_20",
     "EMA_50",
     "SMA_20",
+    "BB_HIGH",
+    "BB_LOW",
+    "BB_WIDTH",
+    "ATR",
+    "STOCH",
+    "STOCH_SIGNAL",
     "Returns",
-    "Volatility"
-]]
+    "Volatility",
+    "Volume_Change"
+]
 
 
 
-# =========================================
-# LABEL
-# =========================================
+X = df[features]
 
-y = df["target"]
+y = df["Target"]
 
 
 
-# =========================================
-# TRAIN TEST SPLIT
-# =========================================
+# ====================================
+# SPLIT
+# ====================================
 
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
     test_size=0.2,
-    random_state=42
+    shuffle=False
 )
 
 
 
-# =========================================
-# XGBOOST MODEL
-# =========================================
+print("Training AI model...")
+
+
+
+# ====================================
+# MODEL
+# ====================================
 
 model = XGBClassifier(
     n_estimators=300,
-    max_depth=6,
+    max_depth=10,
     learning_rate=0.03,
-    subsample=0.8,
-    colsample_bytree=0.8,
+    subsample=0.9,
+    colsample_bytree=0.9,
     random_state=42
 )
 
 
-
-# =========================================
-# TRAIN MODEL
-# =========================================
 
 model.fit(
     X_train,
@@ -219,67 +318,32 @@ model.fit(
 
 
 
-# =========================================
-# PREDICT
-# =========================================
+# ====================================
+# TEST
+# ====================================
 
-predictions = model.predict(
-    X_test
-)
-
-
-
-# =========================================
-# ACCURACY
-# =========================================
+predictions = model.predict(X_test)
 
 accuracy = accuracy_score(
     y_test,
     predictions
 )
 
-print("\nAccuracy:")
-print(accuracy)
+
+
+print("\nAccuracy:", accuracy)
 
 
 
-# =========================================
-# CLASSIFICATION REPORT
-# =========================================
-
-print("\nClassification Report:")
-
-print(
-    classification_report(
-        y_test,
-        predictions
-    )
-)
-
-
-
-# =========================================
-# CONFUSION MATRIX
-# =========================================
-
-print("\nConfusion Matrix:")
-
-print(
-    confusion_matrix(
-        y_test,
-        predictions
-    )
-)
-
-
-
-# =========================================
-# SAVE MODEL
-# =========================================
+# ====================================
+# SAVE
+# ====================================
 
 pickle.dump(
     model,
     open("btc_model.pkl", "wb")
 )
 
-print("\nModel saved as btc_model.pkl")
+
+
+print("\nModel saved successfully!")
