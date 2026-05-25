@@ -2,20 +2,15 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 import pandas as pd
-import numpy as np
 import ta
 import pickle
 import yfinance as yf
 
-import websocket
-import json
-import threading
 
 
-
-# =====================================
+# =========================================
 # AUTO REFRESH
-# =====================================
+# =========================================
 
 st_autorefresh(
     interval=60000,
@@ -24,9 +19,9 @@ st_autorefresh(
 
 
 
-# =====================================
+# =========================================
 # PAGE CONFIG
-# =====================================
+# =========================================
 
 st.set_page_config(
     page_title="BTC AI Dashboard",
@@ -35,17 +30,17 @@ st.set_page_config(
 
 
 
-# =====================================
+# =========================================
 # TITLE
-# =====================================
+# =========================================
 
 st.title("BTC AI Prediction Dashboard")
 
 
 
-# =====================================
+# =========================================
 # LOAD MODEL
-# =====================================
+# =========================================
 
 model = pickle.load(
     open("btc_model.pkl", "rb")
@@ -53,104 +48,33 @@ model = pickle.load(
 
 
 
-# =====================================
-# LIVE PRICE PLACEHOLDER
-# =====================================
-
-live_price_placeholder = st.empty()
-
-
-
-# =====================================
-# SESSION STATE
-# =====================================
-
-if "live_price" not in st.session_state:
-
-    st.session_state.live_price = 0
-
-
-
-# =====================================
-# WEBSOCKET MESSAGE
-# =====================================
-
-def on_message(ws, message):
-
-    data = json.loads(message)
-
-    st.session_state.live_price = float(
-        data["p"]
-    )
-
-
-
-# =====================================
-# START WEBSOCKET
-# =====================================
-
-def start_websocket():
-
-    ws = websocket.WebSocketApp(
-
-        "wss://stream.binance.com:9443/ws/btcusdt@trade",
-
-        on_message=on_message
-
-    )
-
-    ws.run_forever()
-
-
-
-# =====================================
-# THREAD
-# =====================================
-
-threading.Thread(
-
-    target=start_websocket,
-    daemon=True
-
-).start()
-
-
-
-# =====================================
-# SHOW LIVE PRICE
-# =====================================
-
-live_price_placeholder.metric(
-
-    "Live BTC Price",
-
-    f"${st.session_state.live_price:,.2f}"
-
-)
-
-
-
-# =====================================
+# =========================================
 # DOWNLOAD BTC DATA
-# =====================================
+# =========================================
 
 df = yf.download(
-
     "BTC-USD",
-
-    period="5y",
-
-    interval="1d",
-
+    period="300d",
+    interval="1h",
     auto_adjust=True
-
 )
 
 
 
-# =====================================
+# =========================================
+# CHECK EMPTY
+# =========================================
+
+if df.empty:
+
+    st.error("Failed to load BTC data")
+    st.stop()
+
+
+
+# =========================================
 # FIX MULTIINDEX
-# =====================================
+# =========================================
 
 if isinstance(df.columns, pd.MultiIndex):
 
@@ -158,321 +82,351 @@ if isinstance(df.columns, pd.MultiIndex):
 
 
 
-# =====================================
+# =========================================
 # RESET INDEX
-# =====================================
+# =========================================
 
 df.reset_index(inplace=True)
 
 
 
-# =====================================
+# =========================================
 # KEEP COLUMNS
-# =====================================
+# =========================================
 
 df = df[[
-
     "Open",
     "High",
     "Low",
     "Close",
     "Volume"
-
-]]
-
+]].copy()
 
 
-# =====================================
-# FLOAT CONVERSION
-# =====================================
+
+# =========================================
+# CONVERT FLOAT
+# =========================================
 
 for col in df.columns:
 
     df[col] = pd.to_numeric(
-
         df[col],
         errors="coerce"
-
     )
 
 
 
-# =====================================
+# =========================================
+# REMOVE BAD ROWS
+# =========================================
+
+df.dropna(inplace=True)
+
+
+
+# =========================================
+# CHECK DATA SIZE
+# =========================================
+
+if len(df) < 50:
+
+    st.error("Not enough BTC data")
+    st.stop()
+
+
+
+# =========================================
+# INDICATORS
+# =========================================
+
+close = df["Close"].squeeze()
+
+high = df["High"].squeeze()
+
+low = df["Low"].squeeze()
+
+volume = df["Volume"].squeeze()
+
+
+
+# =========================================
 # RSI
-# =====================================
+# =========================================
 
 df["RSI"] = ta.momentum.RSIIndicator(
-
-    close=df["Close"],
+    close=close,
     window=14
-
 ).rsi()
 
 
 
-# =====================================
+# =========================================
 # MACD
-# =====================================
+# =========================================
 
 macd = ta.trend.MACD(
-
-    close=df["Close"]
-
+    close=close
 )
 
 df["MACD"] = macd.macd()
 
 df["MACD_SIGNAL"] = macd.macd_signal()
 
-df["MACD_DIFF"] = macd.macd_diff()
 
 
-
-# =====================================
+# =========================================
 # EMA
-# =====================================
+# =========================================
 
 df["EMA_20"] = ta.trend.EMAIndicator(
-
-    close=df["Close"],
+    close=close,
     window=20
-
 ).ema_indicator()
 
 
 
 df["EMA_50"] = ta.trend.EMAIndicator(
-
-    close=df["Close"],
+    close=close,
     window=50
-
 ).ema_indicator()
 
 
 
-# =====================================
+# =========================================
 # SMA
-# =====================================
+# =========================================
 
 df["SMA_20"] = ta.trend.SMAIndicator(
-
-    close=df["Close"],
+    close=close,
     window=20
-
 ).sma_indicator()
 
 
 
-# =====================================
+# =========================================
+# RETURNS
+# =========================================
+
+df["Returns"] = close.pct_change()
+
+
+
+# =========================================
+# VOLATILITY
+# =========================================
+
+df["Volatility"] = (
+    high - low
+) / close
+
+
+
+# =========================================
+# ATR
+# =========================================
+
+df["ATR"] = ta.volatility.AverageTrueRange(
+    high=high,
+    low=low,
+    close=close,
+    window=14
+).average_true_range()
+
+
+
+# =========================================
 # BOLLINGER BANDS
-# =====================================
+# =========================================
 
 bb = ta.volatility.BollingerBands(
-
-    close=df["Close"],
+    close=close,
     window=20
-
 )
 
 df["BB_HIGH"] = bb.bollinger_hband()
 
 df["BB_LOW"] = bb.bollinger_lband()
 
-df["BB_WIDTH"] = bb.bollinger_wband()
 
 
+# =========================================
+# ADX
+# =========================================
 
-# =====================================
-# ATR
-# =====================================
-
-df["ATR"] = ta.volatility.AverageTrueRange(
-
-    high=df["High"],
-    low=df["Low"],
-    close=df["Close"]
-
-).average_true_range()
-
-
-
-# =====================================
-# STOCHASTIC
-# =====================================
-
-stoch = ta.momentum.StochasticOscillator(
-
-    high=df["High"],
-    low=df["Low"],
-    close=df["Close"]
-
+adx = ta.trend.ADXIndicator(
+    high=high,
+    low=low,
+    close=close,
+    window=14
 )
 
-df["STOCH"] = stoch.stoch()
-
-df["STOCH_SIGNAL"] = stoch.stoch_signal()
+df["ADX"] = adx.adx()
 
 
 
-# =====================================
-# RETURNS
-# =====================================
+# =========================================
+# CLEAN FINAL NAN
+# =========================================
 
-df["Returns"] = df["Close"].pct_change()
-
-
-
-# =====================================
-# VOLATILITY
-# =====================================
-
-df["Volatility"] = (
-
-    df["High"] - df["Low"]
-
-) / df["Close"]
+df = df.dropna().copy()
 
 
 
-# =====================================
-# VOLUME CHANGE
-# =====================================
+# =========================================
+# FINAL CHECK
+# =========================================
 
-df["Volume_Change"] = (
+if df.empty:
 
-    df["Volume"].pct_change()
-
-)
-
-
-
-# =====================================
-# DROP NAN
-# =====================================
-
-df.dropna(inplace=True)
+    st.error("Indicators failed")
+    st.stop()
 
 
 
-# =====================================
+# =========================================
 # FEATURES
-# =====================================
+# =========================================
 
-features = [
-
+latest = df[[
     "Close",
     "Volume",
     "RSI",
     "MACD",
     "MACD_SIGNAL",
-    "MACD_DIFF",
     "EMA_20",
     "EMA_50",
     "SMA_20",
-    "BB_HIGH",
-    "BB_LOW",
-    "BB_WIDTH",
-    "ATR",
-    "STOCH",
-    "STOCH_SIGNAL",
     "Returns",
-    "Volatility",
-    "Volume_Change"
-
-]
+    "Volatility"
+]].tail(1)
 
 
 
-latest = df[features].tail(1)
-
-
-
-# =====================================
-# PREDICTION
-# =====================================
+# =========================================
+# PREDICT
+# =========================================
 
 prediction = model.predict(
-
     latest
-
 )[0]
 
 
 
-# =====================================
-# PROBABILITY
-# =====================================
+# =========================================
+# LIVE PRICE
+# =========================================
 
-probability = model.predict_proba(
-
-    latest
-
-)[0]
+live_price = float(
+    df["Close"].iloc[-1]
+)
 
 
 
-up_prob = probability[1] * 100
+# =========================================
+# PRICE CHANGE
+# =========================================
 
-down_prob = probability[0] * 100
+previous_price = float(
+    df["Close"].iloc[-2]
+)
+
+change = live_price - previous_price
 
 
 
-# =====================================
+# =========================================
+# METRICS
+# =========================================
+
+st.metric(
+    "Live BTC Price",
+    f"${live_price:,.2f}",
+    f"{change:,.2f}"
+)
+
+
+
+# =========================================
 # SIGNAL
-# =====================================
-
-st.subheader("AI Market Signal")
-
-
+# =========================================
 
 if prediction == 1:
 
     st.success(
-
-        f"BTC may go UP\n\n"
-        f"UP Probability: {up_prob:.2f}%"
-
+        "AI Prediction: BTC may go UP"
     )
 
 else:
 
     st.error(
-
-        f"BTC may go DOWN\n\n"
-        f"DOWN Probability: {down_prob:.2f}%"
-
+        "AI Prediction: BTC may go DOWN"
     )
 
 
 
-# =====================================
-# CURRENT PRICE
-# =====================================
+# =========================================
+# RSI STATUS
+# =========================================
 
-current_price = df["Close"].iloc[-1]
-
-
-
-st.metric(
-
-    "Daily Close Price",
-
-    f"${current_price:,.2f}"
-
+latest_rsi = float(
+    df["RSI"].iloc[-1]
 )
 
+if latest_rsi > 70:
+
+    st.warning(
+        f"RSI Overbought: {latest_rsi:.2f}"
+    )
+
+elif latest_rsi < 30:
+
+    st.warning(
+        f"RSI Oversold: {latest_rsi:.2f}"
+    )
+
+else:
+
+    st.info(
+        f"RSI Neutral: {latest_rsi:.2f}"
+    )
 
 
-# =====================================
+
+# =========================================
+# MACD STATUS
+# =========================================
+
+latest_macd = float(
+    df["MACD"].iloc[-1]
+)
+
+latest_signal = float(
+    df["MACD_SIGNAL"].iloc[-1]
+)
+
+if latest_macd > latest_signal:
+
+    st.success(
+        "MACD Bullish Crossover"
+    )
+
+else:
+
+    st.error(
+        "MACD Bearish Crossover"
+    )
+
+
+
+# =========================================
 # CHARTS
-# =====================================
+# =========================================
 
 st.subheader("BTC Close Price")
 
 st.line_chart(
-
     df["Close"]
-
 )
 
 
@@ -480,9 +434,7 @@ st.line_chart(
 st.subheader("RSI")
 
 st.line_chart(
-
     df["RSI"]
-
 )
 
 
@@ -490,26 +442,45 @@ st.line_chart(
 st.subheader("MACD")
 
 st.line_chart(
-
     df[[
-
         "MACD",
         "MACD_SIGNAL"
-
     ]]
-
 )
 
 
 
-# =====================================
-# DATA TABLE
-# =====================================
+st.subheader("EMA 20 vs EMA 50")
 
-st.subheader("Latest BTC Data")
+st.line_chart(
+    df[[
+        "EMA_20",
+        "EMA_50"
+    ]]
+)
+
+
+
+st.subheader("Bollinger Bands")
+
+st.line_chart(
+    df[[
+        "BB_HIGH",
+        "Close",
+        "BB_LOW"
+    ]]
+)
+
+
+
+# =========================================
+# LAST DATA
+# =========================================
+
+st.subheader(
+    "Latest BTC Data"
+)
 
 st.dataframe(
-
-    df.tail()
-
+    df.tail(10)
 )
