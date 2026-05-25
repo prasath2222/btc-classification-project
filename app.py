@@ -73,7 +73,7 @@ if df.empty:
 
 
 # =========================================
-# FIX MULTIINDEX
+# FIX MULTI INDEX
 # =========================================
 
 if isinstance(df.columns, pd.MultiIndex):
@@ -105,7 +105,7 @@ df = df[[
 
 
 # =========================================
-# CONVERT FLOAT
+# FLOAT CONVERSION
 # =========================================
 
 for col in df.columns:
@@ -118,7 +118,7 @@ for col in df.columns:
 
 
 # =========================================
-# REMOVE BAD ROWS
+# REMOVE EMPTY ROWS
 # =========================================
 
 df.dropna(inplace=True)
@@ -126,10 +126,10 @@ df.dropna(inplace=True)
 
 
 # =========================================
-# CHECK DATA SIZE
+# CHECK LENGTH
 # =========================================
 
-if len(df) < 50:
+if len(df) < 100:
 
     st.error("Not enough BTC data")
     st.stop()
@@ -137,7 +137,7 @@ if len(df) < 50:
 
 
 # =========================================
-# INDICATORS
+# SERIES
 # =========================================
 
 close = df["Close"].squeeze()
@@ -172,6 +172,11 @@ macd = ta.trend.MACD(
 df["MACD"] = macd.macd()
 
 df["MACD_SIGNAL"] = macd.macd_signal()
+
+df["MACD_DIFF"] = (
+    df["MACD"] -
+    df["MACD_SIGNAL"]
+)
 
 
 
@@ -208,7 +213,9 @@ df["SMA_20"] = ta.trend.SMAIndicator(
 # RETURNS
 # =========================================
 
-df["Returns"] = close.pct_change()
+df["Returns"] = (
+    close.pct_change()
+)
 
 
 
@@ -248,20 +255,39 @@ df["BB_HIGH"] = bb.bollinger_hband()
 
 df["BB_LOW"] = bb.bollinger_lband()
 
+df["BB_WIDTH"] = (
+    df["BB_HIGH"] -
+    df["BB_LOW"]
+)
+
 
 
 # =========================================
-# ADX
+# STOCHASTIC
 # =========================================
 
-adx = ta.trend.ADXIndicator(
+stoch = ta.momentum.StochasticOscillator(
     high=high,
     low=low,
     close=close,
     window=14
 )
 
-df["ADX"] = adx.adx()
+df["STOCH"] = stoch.stoch()
+
+df["STOCH_SIGNAL"] = (
+    stoch.stoch_signal()
+)
+
+
+
+# =========================================
+# VOLUME CHANGE
+# =========================================
+
+df["Volume_Change"] = (
+    volume.pct_change()
+)
 
 
 
@@ -294,11 +320,19 @@ latest = df[[
     "RSI",
     "MACD",
     "MACD_SIGNAL",
+    "MACD_DIFF",
     "EMA_20",
     "EMA_50",
     "SMA_20",
+    "BB_HIGH",
+    "BB_LOW",
+    "BB_WIDTH",
+    "ATR",
+    "STOCH",
+    "STOCH_SIGNAL",
     "Returns",
-    "Volatility"
+    "Volatility",
+    "Volume_Change"
 ]].tail(1)
 
 
@@ -331,7 +365,10 @@ previous_price = float(
     df["Close"].iloc[-2]
 )
 
-change = live_price - previous_price
+change = (
+    live_price -
+    previous_price
+)
 
 
 
@@ -348,7 +385,7 @@ st.metric(
 
 
 # =========================================
-# SIGNAL
+# AI SIGNAL
 # =========================================
 
 if prediction == 1:
@@ -376,19 +413,19 @@ latest_rsi = float(
 if latest_rsi > 70:
 
     st.warning(
-        f"RSI Overbought: {latest_rsi:.2f}"
+        f"RSI Overbought : {latest_rsi:.2f}"
     )
 
 elif latest_rsi < 30:
 
     st.warning(
-        f"RSI Oversold: {latest_rsi:.2f}"
+        f"RSI Oversold : {latest_rsi:.2f}"
     )
 
 else:
 
     st.info(
-        f"RSI Neutral: {latest_rsi:.2f}"
+        f"RSI Neutral : {latest_rsi:.2f}"
     )
 
 
@@ -423,7 +460,9 @@ else:
 # CHARTS
 # =========================================
 
-st.subheader("BTC Close Price")
+st.subheader(
+    "BTC Close Price"
+)
 
 st.line_chart(
     df["Close"]
@@ -431,7 +470,9 @@ st.line_chart(
 
 
 
-st.subheader("RSI")
+st.subheader(
+    "RSI"
+)
 
 st.line_chart(
     df["RSI"]
@@ -439,7 +480,9 @@ st.line_chart(
 
 
 
-st.subheader("MACD")
+st.subheader(
+    "MACD"
+)
 
 st.line_chart(
     df[[
@@ -450,7 +493,9 @@ st.line_chart(
 
 
 
-st.subheader("EMA 20 vs EMA 50")
+st.subheader(
+    "EMA 20 vs EMA 50"
+)
 
 st.line_chart(
     df[[
@@ -461,7 +506,9 @@ st.line_chart(
 
 
 
-st.subheader("Bollinger Bands")
+st.subheader(
+    "Bollinger Bands"
+)
 
 st.line_chart(
     df[[
@@ -473,8 +520,21 @@ st.line_chart(
 
 
 
+st.subheader(
+    "Stochastic Oscillator"
+)
+
+st.line_chart(
+    df[[
+        "STOCH",
+        "STOCH_SIGNAL"
+    ]]
+)
+
+
+
 # =========================================
-# LAST DATA
+# TABLE
 # =========================================
 
 st.subheader(
