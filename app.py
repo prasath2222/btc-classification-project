@@ -4,7 +4,6 @@ import numpy as np
 import yfinance as yf
 import ta
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 
 # =========================
@@ -17,129 +16,106 @@ st.set_page_config(
     layout="wide"
 )
 
-st_autorefresh(interval=15000, key="refresh")
+st_autorefresh(interval=15000, key="btc_refresh")
 
 # =========================
-# CUSTOM CSS
+# CSS
 # =========================
 
 st.markdown("""
 <style>
 
-html, body, [class*="css"] {
-    background-color: #050816;
-    color: white;
-    font-family: 'Segoe UI';
+html, body, [class*="css"]{
+    background:#050816;
+    color:white;
+    font-family:Segoe UI;
 }
 
-.block-container {
-    padding-top: 2rem;
-    padding-bottom: 2rem;
-    max-width: 1500px;
+.block-container{
+    padding-top:2rem;
+    max-width:1500px;
 }
 
 /* TITLE */
 
-.main-title {
-    font-size: 58px;
-    font-weight: 800;
-    color: white;
-    margin-bottom: 10px;
+.main-title{
+    font-size:58px;
+    font-weight:800;
+    color:white;
 }
 
-.subtitle {
-    color: #94a3b8;
-    font-size: 18px;
-    margin-bottom: 35px;
+.subtitle{
+    color:#94a3b8;
+    margin-bottom:35px;
 }
 
 /* CARDS */
 
-.card {
-    background: linear-gradient(145deg,#0f172a,#111c44);
-    padding: 28px;
-    border-radius: 22px;
-    border: 1px solid rgba(255,255,255,0.06);
-    box-shadow: 0 0 30px rgba(0,0,0,0.35);
+.card{
+    background:#0f172a;
+    padding:28px;
+    border-radius:24px;
+    border:1px solid rgba(255,255,255,0.05);
 }
 
-.price {
-    font-size: 62px;
-    font-weight: 800;
-    color: white;
+.price{
+    font-size:64px;
+    font-weight:800;
 }
 
-.label {
-    color: #94a3b8;
-    font-size: 18px;
+.green{
+    color:#00ff9d;
 }
 
-.change-up {
-    color: #00ff9d;
-    font-size: 40px;
-    font-weight: 700;
+.red{
+    color:#ff4d6d;
 }
 
-.change-down {
-    color: #ff3366;
-    font-size: 40px;
-    font-weight: 700;
+/* INDICATORS */
+
+.indicator-card{
+    background:#111827;
+    border-radius:20px;
+    padding:25px;
+    text-align:center;
+}
+
+.indicator-name{
+    color:#94a3b8;
+    font-size:18px;
+}
+
+.indicator-value{
+    font-size:42px;
+    font-weight:800;
+}
+
+/* SECTION */
+
+.section-title{
+    font-size:42px;
+    font-weight:800;
+    margin-top:40px;
+    margin-bottom:20px;
 }
 
 /* PREDICTION */
 
-.prediction-up {
-    background: linear-gradient(145deg,#052e16,#064e3b);
-    border-radius: 24px;
-    padding: 30px;
-    border: 1px solid rgba(0,255,100,0.2);
+.prediction-up{
+    background:#052e16;
+    padding:30px;
+    border-radius:24px;
 }
 
-.prediction-down {
-    background: linear-gradient(145deg,#3b0000,#5f0000);
-    border-radius: 24px;
-    padding: 30px;
-    border: 1px solid rgba(255,0,80,0.2);
-}
-
-.prediction-title {
-    font-size: 42px;
-    font-weight: 800;
-}
-
-/* INDICATOR CARDS */
-
-.indicator-card {
-    background: #0f172a;
-    padding: 25px;
-    border-radius: 20px;
-    text-align: center;
-    border: 1px solid rgba(255,255,255,0.06);
-}
-
-.indicator-name {
-    color: #94a3b8;
-    font-size: 18px;
-}
-
-.indicator-value {
-    font-size: 48px;
-    font-weight: 800;
-    margin-top: 10px;
-}
-
-/* SECTION TITLE */
-
-.section-title {
-    font-size: 40px;
-    font-weight: 800;
-    margin-top: 35px;
-    margin-bottom: 20px;
+.prediction-down{
+    background:#450a0a;
+    padding:30px;
+    border-radius:24px;
 }
 
 /* MOBILE */
 
-@media (max-width: 768px){
+@media(max-width:768px){
 
     .main-title{
         font-size:42px;
@@ -149,12 +125,8 @@ html, body, [class*="css"] {
         font-size:40px;
     }
 
-    .prediction-title{
-        font-size:32px;
-    }
-
     .indicator-value{
-        font-size:34px;
+        font-size:30px;
     }
 
 }
@@ -172,12 +144,12 @@ st.markdown(
 )
 
 st.markdown(
-    '<div class="subtitle">Live Bitcoin Analysis • AI Prediction • Technical Indicators </div>',
+    '<div class="subtitle">Live Bitcoin AI Analysis • Technical Indicators • TradingView Chart</div>',
     unsafe_allow_html=True
 )
 
 # =========================
-# DOWNLOAD BTC DATA
+# BTC DATA
 # =========================
 
 df = yf.download(
@@ -187,55 +159,63 @@ df = yf.download(
     auto_adjust=True
 )
 
-# FIX EMPTY DATA
 if df.empty:
-    st.error("BTC data failed to load")
+    st.error("Failed loading BTC data")
     st.stop()
+
+# FIX MULTI INDEX
+if isinstance(df.columns, pd.MultiIndex):
+    df.columns = df.columns.get_level_values(0)
 
 # RESET INDEX
 df = df.reset_index()
 
-# FIX DATETIME COLUMN
+# FIX DATE COLUMN
 if "Datetime" in df.columns:
-    date_col = "Datetime"
+    pass
 
 elif "Date" in df.columns:
-    date_col = "Date"
+    df.rename(columns={"Date":"Datetime"}, inplace=True)
 
 else:
-    date_col = df.columns[0]
+    df.rename(columns={df.columns[0]:"Datetime"}, inplace=True)
 
-df.rename(columns={date_col: "Datetime"}, inplace=True)
+# FORCE 1D SERIES
+close = pd.Series(df["Close"]).astype(float)
+
+high = pd.Series(df["High"]).astype(float)
+
+low = pd.Series(df["Low"]).astype(float)
 
 # =========================
 # INDICATORS
 # =========================
 
 df["RSI"] = ta.momentum.RSIIndicator(
-    close=df["Close"]
+    close=close
 ).rsi()
 
-macd = ta.trend.MACD(df["Close"])
+macd = ta.trend.MACD(close)
 
 df["MACD"] = macd.macd()
 
 df["EMA20"] = ta.trend.EMAIndicator(
-    close=df["Close"],
+    close=close,
     window=20
 ).ema_indicator()
 
 df["EMA50"] = ta.trend.EMAIndicator(
-    close=df["Close"],
+    close=close,
     window=50
 ).ema_indicator()
 
 df["ATR"] = ta.volatility.AverageTrueRange(
-    high=df["High"],
-    low=df["Low"],
-    close=df["Close"]
+    high=high,
+    low=low,
+    close=close
 ).average_true_range()
 
-df["Volatility"] = df["Close"].pct_change().rolling(24).std()
+df["Volatility"] = close.pct_change().rolling(24).std()
 
 # =========================
 # LATEST VALUES
@@ -245,11 +225,11 @@ latest = df.iloc[-1]
 
 price = float(latest["Close"])
 
-previous = float(df.iloc[-2]["Close"])
+prev = float(df.iloc[-2]["Close"])
 
-change = price - previous
+change = price - prev
 
-change_percent = (change / previous) * 100
+change_percent = (change / prev) * 100
 
 rsi = float(latest["RSI"])
 
@@ -260,36 +240,48 @@ atr = float(latest["ATR"])
 volatility = float(latest["Volatility"])
 
 # =========================
-# LIVE PRICE CARDS
+# LIVE PRICE
 # =========================
 
-col1, col2 = st.columns([2,1])
+c1, c2 = st.columns([2,1])
 
-with col1:
+with c1:
 
     st.markdown(f"""
     <div class="card">
-        <div class="label">BTC/USD</div>
+        <div style="color:#94a3b8;font-size:18px;">
+            BTC/USD
+        </div>
+
         <br>
-        <div class="price">${price:,.2f}</div>
+
+        <div class="price">
+            ${price:,.2f}
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-with col2:
+with c2:
 
-    color_class = "change-up" if change > 0 else "change-down"
+    color = "green" if change > 0 else "red"
 
     arrow = "▲" if change > 0 else "▼"
 
     st.markdown(f"""
     <div class="card">
-        <div class="label">24H Change</div>
+        <div style="color:#94a3b8;font-size:18px;">
+            24H Change
+        </div>
+
         <br>
-        <div class="{color_class}">
+
+        <div class="{color}" style="font-size:42px;font-weight:800;">
             {arrow} {change:,.2f}
         </div>
+
         <br>
-        <div class="{color_class}">
+
+        <div class="{color}" style="font-size:32px;font-weight:700;">
             {change_percent:.2f}%
         </div>
     </div>
@@ -311,26 +303,28 @@ confidence = np.random.randint(70,95)
 
 st.markdown(f"""
 <div class="{prediction_class}">
-    <div style="font-size:20px;color:#cbd5e1;">
-        AI Prediction
-    </div>
 
-    <br>
+<div style="font-size:22px;color:#cbd5e1;">
+AI Prediction
+</div>
 
-    <div class="prediction-title">
-        BTC may go {prediction}
-    </div>
+<br>
 
-    <br>
+<div style="font-size:52px;font-weight:800;">
+BTC may go {prediction}
+</div>
 
-    <div style="font-size:22px;">
-        Confidence : {confidence}%
-    </div>
+<br>
+
+<div style="font-size:28px;">
+Confidence : {confidence}%
+</div>
+
 </div>
 """, unsafe_allow_html=True)
 
 # =========================
-# INDICATORS
+# MAIN INDICATORS
 # =========================
 
 st.markdown(
@@ -338,28 +332,32 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-c1, c2, c3, c4 = st.columns(4)
+i1, i2, i3, i4 = st.columns(4)
 
-cards = [
+data = [
     ("RSI", rsi, "#38bdf8"),
     ("MACD", macd_value, "#f472b6"),
     ("ATR", atr, "#facc15"),
     ("Volatility", volatility, "#4ade80")
 ]
 
-for col, (name, value, color) in zip([c1,c2,c3,c4], cards):
+for col, (name, value, color) in zip([i1,i2,i3,i4], data):
 
     with col:
 
         st.markdown(f"""
         <div class="indicator-card">
+
             <div class="indicator-name">
                 {name}
             </div>
 
-            <div class="indicator-value" style="color:{color}">
+            <br>
+
+            <div class="indicator-value" style="color:{color};">
                 {value:.2f}
             </div>
+
         </div>
         """, unsafe_allow_html=True)
 
@@ -387,7 +385,7 @@ fig.add_trace(go.Scatter(
     y=df["EMA50"],
     mode="lines",
     name="EMA 50",
-    line=dict(color="#f43f5e", width=3)
+    line=dict(color="#ff4d6d", width=3)
 ))
 
 fig.update_layout(
@@ -396,14 +394,8 @@ fig.update_layout(
     plot_bgcolor="#050816",
     font=dict(color="white"),
     xaxis=dict(showgrid=False),
-    yaxis=dict(showgrid=True, gridcolor="#1e293b"),
-    legend=dict(
-        orientation="h",
-        yanchor="bottom",
-        y=1.02,
-        xanchor="right",
-        x=1
-    )
+    yaxis=dict(gridcolor="#1e293b"),
+    legend=dict(orientation="h")
 )
 
 st.plotly_chart(
@@ -420,7 +412,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-tradingview_html = """
+tradingview = """
 <div class="tradingview-widget-container">
   <div id="tradingview_chart"></div>
 
@@ -429,27 +421,26 @@ tradingview_html = """
 
   <script type="text/javascript">
 
-  new TradingView.widget(
-  {
-    "width": "100%",
-    "height": 750,
-    "symbol": "BINANCE:BTCUSDT",
-    "interval": "60",
-    "timezone": "Asia/Kolkata",
-    "theme": "dark",
-    "style": "1",
-    "locale": "en",
-    "toolbar_bg": "#0f172a",
-    "enable_publishing": false,
-    "allow_symbol_change": true,
-    "withdateranges": true,
-    "hide_side_toolbar": false,
-    "studies": [
+  new TradingView.widget({
+    "width":"100%",
+    "height":750,
+    "symbol":"BINANCE:BTCUSDT",
+    "interval":"60",
+    "timezone":"Asia/Kolkata",
+    "theme":"dark",
+    "style":"1",
+    "locale":"en",
+    "toolbar_bg":"#0f172a",
+    "enable_publishing":false,
+    "allow_symbol_change":true,
+    "withdateranges":true,
+    "hide_side_toolbar":false,
+    "studies":[
       "RSI@tv-basicstudies",
       "MACD@tv-basicstudies",
       "MASimple@tv-basicstudies"
     ],
-    "container_id": "tradingview_chart"
+    "container_id":"tradingview_chart"
   });
 
   </script>
@@ -457,6 +448,6 @@ tradingview_html = """
 """
 
 st.components.v1.html(
-    tradingview_html,
+    tradingview,
     height=760
 )
