@@ -202,6 +202,8 @@ df = df.dropna()
 # =========================================================
 
 features = [
+    "Close",
+    "Volume",
     "RSI",
     "MACD",
     "MACD_SIGNAL",
@@ -217,7 +219,8 @@ features = [
     "STOCH_SIGNAL",
     "Returns",
     "Volatility",
-    "Volume_Change"
+    "Volume_Change",
+    "Trend"
 ]
 
 latest = df[features].tail(1)
