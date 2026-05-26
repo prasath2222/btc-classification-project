@@ -1,5 +1,6 @@
 # =========================================================
-# ADVANCED LIVE AI PREDICTION ENGINE
+# BEST ADVANCED PREDICT.PY
+# LIVE MARKET PREDICTION
 # =========================================================
 
 import ccxt
@@ -37,7 +38,7 @@ exchange = ccxt.binance()
 bars = exchange.fetch_ohlcv(
     'RENDER/USDT',
     timeframe='1h',
-    limit=500
+    limit=300
 )
 
 df = pd.DataFrame(
@@ -59,7 +60,7 @@ df = pd.DataFrame(
 btc_bars = exchange.fetch_ohlcv(
     'BTC/USDT',
     timeframe='1h',
-    limit=500
+    limit=300
 )
 
 btc_df = pd.DataFrame(
@@ -291,25 +292,26 @@ df.replace(
 df.dropna(inplace=True)
 
 # =========================================================
-# FEATURES
+# LATEST DATA
 # =========================================================
 
-latest = df[features].iloc[-1:]
+latest = df.iloc[-1]
+
+X_live = pd.DataFrame(
+    [[latest[f] for f in features]],
+    columns=features
+)
 
 # =========================================================
 # PREDICTIONS
 # =========================================================
 
-prediction = classifier.predict(
-    latest
-)[0]
-
-predicted_price = regressor.predict(
-    latest
+class_prediction = classifier.predict(
+    X_live
 )[0]
 
 probabilities = classifier.predict_proba(
-    latest
+    X_live
 )[0]
 
 confidence = round(
@@ -317,108 +319,42 @@ confidence = round(
     2
 )
 
+future_price = regressor.predict(
+    X_live
+)[0]
+
+current_price = latest["close"]
+
 # =========================================================
-# SIGNAL MAP
+# LABELS
 # =========================================================
 
-signal_map = {
+labels = {
 
-    2: "STRONG BUY",
+    4: "STRONG BUY 🚀",
+    3: "BUY 📈",
+    2: "SIDEWAYS ➖",
+    1: "SELL 📉",
+    0: "STRONG SELL 🔥"
 
-    1: "BUY",
-
-    0: "SIDEWAYS",
-
-    -1: "SELL",
-
-    -2: "STRONG SELL"
 }
 
-signal = signal_map.get(
-    prediction,
-    "SIDEWAYS"
-)
+signal = labels[class_prediction]
 
 # =========================================================
-# EXTRA MOMENTUM FILTER
-# =========================================================
-
-price = df["close"].iloc[-1]
-
-ema20 = df["EMA20"].iloc[-1]
-ema50 = df["EMA50"].iloc[-1]
-ema200 = df["EMA200"].iloc[-1]
-
-rsi = df["RSI"].iloc[-1]
-
-macd_now = df["MACD"].iloc[-1]
-
-breakout = df["Breakout"].iloc[-1]
-
-volume_spike = df["Volume_Spike"].iloc[-1]
-
-# =========================================================
-# BULLISH OVERRIDE
-# =========================================================
-
-if (
-
-    price > ema20
-    and ema20 > ema50
-    and ema50 > ema200
-
-    and rsi > 55
-
-    and macd_now > 0
-
-    and breakout == 1
-
-):
-
-    signal = "STRONG BUY"
-
-# =========================================================
-# BEARISH OVERRIDE
-# =========================================================
-
-elif (
-
-    price < ema20
-    and ema20 < ema50
-    and ema50 < ema200
-
-    and rsi < 45
-
-    and macd_now < 0
-
-):
-
-    signal = "STRONG SELL"
-
-# =========================================================
-# VOLUME BOOST
-# =========================================================
-
-if volume_spike == 1 and "BUY" in signal:
-    confidence += 5
-
-if confidence > 99:
-    confidence = 99
-
-# =========================================================
-# FINAL OUTPUT
+# PRINT RESULTS
 # =========================================================
 
 print("\n===================================")
-print("LIVE RNDR AI PREDICTION")
+print("LIVE AI MARKET PREDICTION")
 print("===================================")
 
-print(f"\nCurrent Price : ${price:.4f}")
+print(f"\nCurrent Price : ${current_price:.4f}")
 
-print(f"\nPredicted Price : ${predicted_price:.4f}")
+print(f"\nPredicted Price : ${future_price:.4f}")
 
-print(f"\nSignal : {signal}")
+print(f"\nAI Signal : {signal}")
 
 print(f"\nConfidence : {confidence}%")
 
-print("===================================")
+print("\n===================================")
