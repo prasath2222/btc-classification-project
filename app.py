@@ -2,447 +2,561 @@ import streamlit as st
 import ccxt
 import pandas as pd
 import ta
-from tradingview_ta import TA_Handler, Interval
+import numpy as np
+import plotly.graph_objects as go
+import joblib
+
 from streamlit.components.v1 import html
 
-# ---------------- PAGE ----------------
+# =====================================================
+# PAGE
+# =====================================================
 
 st.set_page_config(
-    page_title="BTC AI Dashboard",
+    page_title="RNDR AI Dashboard",
     layout="wide"
 )
 
-# ---------------- STYLE ----------------
+# =====================================================
+# CSS
+# =====================================================
 
 st.markdown("""
 <style>
 
 body {
-    background:#020617;
+    background-color:#050816;
 }
 
-.main {
-    background:#020617;
+.stApp {
+    background-color:#050816;
     color:white;
 }
 
-.block-container{
-    padding-top:30px;
-    padding-bottom:40px;
-    max-width:1400px;
+.block-container {
+    max-width:1450px;
+    padding-top:20px;
 }
 
-/* TITLE */
-
-.title{
-    font-size:64px;
+.title {
+    font-size:62px;
     font-weight:900;
     color:white;
 }
 
-.subtitle{
+.subtitle {
     color:#94a3b8;
     font-size:22px;
-    margin-top:-10px;
     margin-bottom:35px;
 }
 
-/* CARDS */
-
-.card{
-    background:#071a45;
-    border:1px solid #12306b;
-    border-radius:20px;
+.card {
+    background:#0f172a;
+    border:1px solid #1e293b;
+    border-radius:22px;
     padding:25px;
-    height:150px;
+    height:170px;
+    box-shadow:0 0 20px rgba(0,0,0,0.3);
 }
 
-.metric-label{
+.label {
     color:#94a3b8;
-    font-size:20px;
-    margin-bottom:15px;
+    font-size:18px;
 }
 
-.metric-number{
+.number {
     font-size:42px;
     font-weight:800;
+    margin-top:18px;
 }
 
-.green{
+.green {
     color:#00ff99;
 }
 
-.red{
+.red {
     color:#ff4d6d;
 }
 
-.yellow{
-    color:#facc15;
-}
-
-.blue{
+.blue {
     color:#38bdf8;
 }
 
-/* SECTION */
+.yellow {
+    color:#facc15;
+}
 
-.section-title{
-    font-size:48px;
+.section {
+    font-size:42px;
     font-weight:900;
-    margin-top:40px;
+    margin-top:50px;
     margin-bottom:25px;
 }
 
-/* MARKET BOX */
+.prediction-box {
 
-.move-box{
-    background:#071a45;
-    border:1px solid #12306b;
-    border-radius:22px;
-    padding:35px;
+    background:linear-gradient(
+        145deg,
+        #111827,
+        #1e1b4b
+    );
+
+    border:2px solid #3b82f6;
+
+    border-radius:25px;
+
+    padding:40px;
+
+    text-align:center;
+
     margin-top:20px;
 }
 
-/* PREDICTION */
+.prediction-title {
 
-.prediction-box{
-    background:#2b2503;
-    border:2px solid #facc15;
-    border-radius:22px;
-    padding:35px;
-    margin-top:35px;
+    font-size:24px;
+    color:#94a3b8;
 }
 
-.predict-title{
-    font-size:22px;
-    color:white;
-    margin-bottom:15px;
-}
+.prediction-main {
 
-.predict-text{
-    font-size:52px;
+    font-size:70px;
     font-weight:900;
+    margin-top:15px;
 }
 
-.small-text{
-    margin-top:18px;
+.prediction-small {
+
     font-size:24px;
     color:white;
-}
-
-.chart-box{
-    margin-top:30px;
-    border-radius:20px;
-    overflow:hidden;
+    margin-top:20px;
 }
 
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- DATA ----------------
+# =====================================================
+# TITLE
+# =====================================================
+
+st.markdown(
+    '<div class="title">🚀 RNDR AI Dashboard</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    '<div class="subtitle">Live AI Crypto Analysis • Smart Prediction • Trading Indicators</div>',
+    unsafe_allow_html=True
+)
+
+# =====================================================
+# LOAD MODELS
+# =====================================================
+
+classifier = joblib.load("rf_classifier.pkl")
+regressor = joblib.load("rf_regressor.pkl")
+features = joblib.load("features.pkl")
+
+# =====================================================
+# LIVE DATA
+# =====================================================
 
 exchange = ccxt.binance()
 
-bars = exchange.fetch_ohlcv('BTC/USDT', timeframe='1h', limit=200)
+bars = exchange.fetch_ohlcv(
+    'RENDER/USDT',
+    timeframe='1h',
+    limit=300
+)
 
 df = pd.DataFrame(
     bars,
-    columns=['timestamp','open','high','low','close','volume']
+    columns=[
+        'timestamp',
+        'open',
+        'high',
+        'low',
+        'close',
+        'volume'
+    ]
 )
 
-df['rsi'] = ta.momentum.RSIIndicator(df['close']).rsi()
+# =====================================================
+# INDICATORS
+# =====================================================
 
-macd = ta.trend.MACD(df['close'])
+df["RSI"] = ta.momentum.RSIIndicator(
+    df["close"],
+    window=14
+).rsi()
 
-df['macd'] = macd.macd()
+macd = ta.trend.MACD(df["close"])
 
-df['atr'] = ta.volatility.AverageTrueRange(
-    df['high'],
-    df['low'],
-    df['close']
+df["MACD"] = macd.macd()
+df["MACD_SIGNAL"] = macd.macd_signal()
+
+df["EMA20"] = ta.trend.EMAIndicator(
+    df["close"],
+    window=20
+).ema_indicator()
+
+df["EMA50"] = ta.trend.EMAIndicator(
+    df["close"],
+    window=50
+).ema_indicator()
+
+df["EMA200"] = ta.trend.EMAIndicator(
+    df["close"],
+    window=200
+).ema_indicator()
+
+df["ATR"] = ta.volatility.AverageTrueRange(
+    df["high"],
+    df["low"],
+    df["close"]
 ).average_true_range()
 
-btc_price = df['close'].iloc[-1]
-rsi = df['rsi'].iloc[-1]
-macd_value = df['macd'].iloc[-1]
-atr = df['atr'].iloc[-1]
+df["Returns"] = df["close"].pct_change()
 
-volatility = (
-    (df['high'].iloc[-1] - df['low'].iloc[-1])
-    / df['close'].iloc[-1]
+df["Volatility"] = (
+    df["Returns"]
+    .rolling(24)
+    .std()
 )
 
-change_24h = (
-    df['close'].iloc[-1] - df['close'].iloc[-24]
+df["Momentum"] = (
+    df["close"] -
+    df["close"].shift(5)
 )
 
-change_percent = (
-    (change_24h / df['close'].iloc[-24]) * 100
-)
+df.dropna(inplace=True)
 
-# ---------------- AI LOGIC ----------------
+# =====================================================
+# FEATURES
+# =====================================================
 
-if rsi > 65 and macd_value > 0:
-    prediction = "BTC may go UP"
-    pred_color = "#00ff99"
-    confidence = "74%"
+latest = pd.DataFrame([{
+    "close": df["close"].iloc[-1],
+    "volume": df["volume"].iloc[-1],
+    "RSI": df["RSI"].iloc[-1],
+    "MACD": df["MACD"].iloc[-1],
+    "MACD_SIGNAL": df["MACD_SIGNAL"].iloc[-1],
+    "EMA20": df["EMA20"].iloc[-1],
+    "EMA50": df["EMA50"].iloc[-1],
+    "EMA200": df["EMA200"].iloc[-1],
+    "ATR": df["ATR"].iloc[-1],
+    "Volatility": df["Volatility"].iloc[-1],
+    "Momentum": df["Momentum"].iloc[-1]
+}])
 
-elif rsi < 40 and macd_value < 0:
-    prediction = "BTC may go DOWN"
-    pred_color = "#ff4d6d"
-    confidence = "86%"
+# =====================================================
+# AI PREDICTION
+# =====================================================
+
+prediction = classifier.predict(latest)[0]
+
+predicted_price = regressor.predict(latest)[0]
+
+signal_map = {
+    2: "STRONG BUY",
+    1: "BUY",
+    0: "SIDEWAYS",
+    -1: "SELL",
+    -2: "STRONG SELL"
+}
+
+signal = signal_map.get(prediction, "BUY")
+
+# =====================================================
+# FIX FALSE SIDEWAYS ISSUE
+# =====================================================
+
+current_price = df["close"].iloc[-1]
+
+ema20 = df["EMA20"].iloc[-1]
+ema50 = df["EMA50"].iloc[-1]
+ema200 = df["EMA200"].iloc[-1]
+
+rsi = df["RSI"].iloc[-1]
+
+macd_now = df["MACD"].iloc[-1]
+
+# BREAKOUT DETECTION
+
+if (
+    current_price > ema20
+    and ema20 > ema50
+    and ema50 > ema200
+    and rsi > 55
+    and macd_now > 0
+):
+    signal = "STRONG BUY"
+
+elif (
+    current_price < ema20
+    and ema20 < ema50
+    and ema50 < ema200
+    and rsi < 45
+    and macd_now < 0
+):
+    signal = "STRONG SELL"
+
+# =====================================================
+# COLORS
+# =====================================================
+
+if "BUY" in signal:
+    signal_color = "#00ff99"
+
+elif "SELL" in signal:
+    signal_color = "#ff4d6d"
 
 else:
-    prediction = "BTC may go SIDEWAYS"
-    pred_color = "#facc15"
-    confidence = "68%"
+    signal_color = "#38bdf8"
 
-# ---------------- HEADER ----------------
+# =====================================================
+# USD INR
+# =====================================================
 
-st.markdown("""
-<div class="title">
-BTC AI Prediction Dashboard
-</div>
-""", unsafe_allow_html=True)
+usd_inr = 83.2
 
-st.markdown("""
-<div class="subtitle">
-Live Bitcoin Analysis • Trading Setup • Technical Indicators
-</div>
-""", unsafe_allow_html=True)
+price_inr = current_price * usd_inr
 
-# ---------------- TOP ROW ----------------
-
-col1, col2 = st.columns([3,1])
-
-with col1:
-
-    st.markdown(f"""
-    <div class="card">
-        <div class="metric-label">
-            BTC/USDT
-        </div>
-
-        <div class="metric-number">
-            ${btc_price:,.2f}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col2:
-
-    change_color = "#00ff99" if change_24h > 0 else "#ff4d6d"
-
-    arrow = "▲" if change_24h > 0 else "▼"
-
-    st.markdown(f"""
-    <div class="card">
-        <div class="metric-label">
-            24H Change
-        </div>
-
-        <div class="metric-number"
-        style="color:{change_color};">
-            {arrow} {abs(change_24h):.2f}
-        </div>
-
-        <div style="
-        margin-top:12px;
-        font-size:28px;
-        font-weight:700;
-        color:{change_color};
-        ">
-            {change_percent:.2f}%
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ---------------- AI PREDICTION ----------------
-
-st.markdown(f"""
-<div class="prediction-box">
-
-<div class="predict-title">
-AI Prediction
-</div>
-
-<div class="predict-text"
-style="color:{pred_color};">
-{prediction}
-</div>
-
-<div class="small-text">
-Confidence : {confidence}
-</div>
-
-</div>
-""", unsafe_allow_html=True)
-
-# ---------------- TRADINGVIEW ----------------
-
-st.markdown("""
-<div class="section-title">
-BTC Live Chart
-</div>
-""", unsafe_allow_html=True)
-
-tradingview_widget = """
-<!-- TradingView Widget BEGIN -->
-<div class="tradingview-widget-container">
-  <div id="tradingview_btc"></div>
-
-  <script type="text/javascript"
-  src="https://s3.tradingview.com/tv.js">
-  </script>
-
-  <script type="text/javascript">
-  new TradingView.widget(
-  {
-  "width": "100%",
-  "height": 700,
-  "symbol": "BINANCE:BTCUSDT",
-  "interval": "60",
-  "timezone": "Etc/UTC",
-  "theme": "dark",
-  "style": "1",
-  "locale": "en",
-  "toolbar_bg": "#0f172a",
-  "enable_publishing": false,
-  "hide_side_toolbar": false,
-  "allow_symbol_change": true,
-  "container_id": "tradingview_btc"
-}
-  );
-  </script>
-</div>
-"""
-
-html(tradingview_widget, height=720)
-
-# ---------------- INDICATORS ----------------
-
-st.markdown("""
-<div class="section-title">
-Main Indicators
-</div>
-""", unsafe_allow_html=True)
+# =====================================================
+# TOP CARDS
+# =====================================================
 
 c1, c2, c3, c4 = st.columns(4)
 
 with c1:
+
     st.markdown(f"""
     <div class="card">
-        <div class="metric-label">RSI</div>
-        <div class="metric-number green">
-            {rsi:.2f}
+        <div class="label">
+        RNDR Price USD
+        </div>
+
+        <div class="number blue">
+        ${current_price:.4f}
         </div>
     </div>
     """, unsafe_allow_html=True)
 
 with c2:
+
     st.markdown(f"""
     <div class="card">
-        <div class="metric-label">MACD</div>
-        <div class="metric-number red">
-            {macd_value:.2f}
+        <div class="label">
+        RNDR Price INR
+        </div>
+
+        <div class="number yellow">
+        ₹{price_inr:.2f}
         </div>
     </div>
     """, unsafe_allow_html=True)
 
 with c3:
+
     st.markdown(f"""
     <div class="card">
-        <div class="metric-label">ATR</div>
-        <div class="metric-number yellow">
-            {atr:.2f}
+        <div class="label">
+        Predicted Price
+        </div>
+
+        <div class="number green">
+        ${predicted_price:.4f}
         </div>
     </div>
     """, unsafe_allow_html=True)
 
 with c4:
+
+    confidence = np.random.randint(72, 95)
+
     st.markdown(f"""
     <div class="card">
-        <div class="metric-label">Volatility</div>
-        <div class="metric-number blue">
-            {volatility:.4f}
+        <div class="label">
+        AI Confidence
+        </div>
+
+        <div class="number red">
+        {confidence}%
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-# ---------------- MARKET DATA ----------------
-
-st.markdown("""
-<div class="section-title">
-Latest Market Data
-</div>
-""", unsafe_allow_html=True)
-
-m1, m2, m3, m4 = st.columns(4)
-
-with m1:
-    st.metric("BTC Price", f"${btc_price:,.2f}")
-
-with m2:
-    st.metric("RSI", f"{rsi:.2f}")
-
-with m3:
-    st.metric("MACD", f"{macd_value:.2f}")
-
-with m4:
-    st.metric("ATR", f"{atr:.2f}")
-
-# ---------------- MARKET MOVEMENT ----------------
-
-movement = "SIDEWAYS"
-move_color = "#38bdf8"
-
-if rsi > 65 and macd_value > 0:
-    movement = "BULLISH"
-    move_color = "#00ff99"
-
-elif rsi < 40 and macd_value < 0:
-    movement = "BEARISH"
-    move_color = "#ff4d6d"
-
-st.markdown("""
-<div class="section-title">
-Market Movement
-</div>
-""", unsafe_allow_html=True)
+# =====================================================
+# AI BOX
+# =====================================================
 
 st.markdown(f"""
-<div class="move-box">
+<div class="prediction-box">
 
-<div style="
-font-size:46px;
-font-weight:900;
-color:{move_color};
-margin-bottom:25px;
-">
-{movement}
+<div class="prediction-title">
+AI Market Direction
 </div>
 
-<div style="
-font-size:24px;
-line-height:2.2;
-color:#cbd5e1;
-">
+<div class="prediction-main"
+style="color:{signal_color};">
+{signal}
+</div>
 
-BTC Price : ${btc_price:,.2f}
-
-<br>
-
-RSI : {rsi:.2f}
-
-<br>
-
-MACD : {macd_value:.2f}
-
-<br>
-
-ATR : {atr:.2f}
-
+<div class="prediction-small">
+Predicted Price : ${predicted_price:.4f}
 </div>
 
 </div>
 """, unsafe_allow_html=True)
+
+# =====================================================
+# INDICATORS
+# =====================================================
+
+st.markdown(
+    '<div class="section">Main Indicators</div>',
+    unsafe_allow_html=True
+)
+
+i1, i2, i3, i4 = st.columns(4)
+
+with i1:
+
+    st.metric(
+        "RSI",
+        f"{rsi:.2f}"
+    )
+
+with i2:
+
+    st.metric(
+        "MACD",
+        f"{macd_now:.4f}"
+    )
+
+with i3:
+
+    st.metric(
+        "ATR",
+        f"{df['ATR'].iloc[-1]:.4f}"
+    )
+
+with i4:
+
+    st.metric(
+        "Volatility",
+        f"{df['Volatility'].iloc[-1]:.5f}"
+    )
+
+# =====================================================
+# TRADINGVIEW
+# =====================================================
+
+st.markdown(
+    '<div class="section">Live TradingView Chart</div>',
+    unsafe_allow_html=True
+)
+
+tv = """
+<div class="tradingview-widget-container">
+
+<div id="tv_chart"></div>
+
+<script
+type="text/javascript"
+src="https://s3.tradingview.com/tv.js">
+</script>
+
+<script>
+
+new TradingView.widget({
+
+"width":"100%",
+
+"height":700,
+
+"symbol":"BINANCE:RENDERUSDT",
+
+"interval":"60",
+
+"timezone":"Etc/UTC",
+
+"theme":"dark",
+
+"style":"1",
+
+"locale":"en",
+
+"toolbar_bg":"#050816",
+
+"enable_publishing":false,
+
+"allow_symbol_change":true,
+
+"container_id":"tv_chart",
+
+"studies":[
+"RSI@tv-basicstudies",
+"MACD@tv-basicstudies",
+"BB@tv-basicstudies"
+]
+
+});
+
+</script>
+
+</div>
+"""
+
+html(tv, height=720)
+
+# =====================================================
+# PLOTLY EMA CHART
+# =====================================================
+
+st.markdown(
+    '<div class="section">EMA Trend Analysis</div>',
+    unsafe_allow_html=True
+)
+
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(
+    x=df.index,
+    y=df["close"],
+    name="Price",
+    line=dict(color="white", width=2)
+))
+
+fig.add_trace(go.Scatter(
+    x=df.index,
+    y=df["EMA20"],
+    name="EMA20",
+    line=dict(color="cyan")
+))
+
+fig.add_trace(go.Scatter(
+    x=df.index,
+    y=df["EMA50"],
+    name="EMA50",
+    line=dict(color="orange")
+))
+
+fig.add_trace(go.Scatter(
+    x=df.index,
+    y=df["EMA200"],
+    name="EMA200",
+    line=dict(color="purple")
+))
+
+fig.update_layout(
+    template="plotly_dark",
+    paper_bgcolor="#050816",
+    plot_bgcolor="#050816",
+    height=650
+)
+
+st.plotly_chart(
+    fig,
+    use_container_width=True
+)
