@@ -7,4 +7,3 @@ plotly
 xgboost
 scikit-learn
 streamlit-autorefresh
-tradingview-ta
