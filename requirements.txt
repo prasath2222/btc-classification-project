@@ -5,6 +5,5 @@ numpy
 ta
 plotly
 joblib
-scikit-learn
 xgboost
-tradingview-ta
+scikit-learn
