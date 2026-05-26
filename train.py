@@ -1,21 +1,19 @@
-# =========================================================
-# BTC AI TRAINING MODEL
-# =========================================================
+!pip install ta # Install the 'ta' library
 
+import yfinance as yf
 import pandas as pd
 import numpy as np
-import yfinance as yf
 import ta
 import pickle
 
-from sklearn.metrics import accuracy_score
 from xgboost import XGBClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
-# =========================================================
+
+# ======================================================
 # DOWNLOAD BTC DATA
-# =========================================================
-
-print("Downloading BTC data...")
+# ======================================================
 
 df = yf.download(
     "BTC-USD",
@@ -23,18 +21,12 @@ df = yf.download(
     interval="1h"
 )
 
-# =========================================================
 # FIX MULTI INDEX
-# =========================================================
+df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
 
-if isinstance(df.columns, pd.MultiIndex):
-    df.columns = df.columns.get_level_values(0)
-
-# =========================================================
-# INDICATORS
-# =========================================================
-
-print("Creating indicators...")
+# ======================================================
+# TECHNICAL INDICATORS
+# ======================================================
 
 # RSI
 df["RSI"] = ta.momentum.RSIIndicator(
@@ -43,27 +35,39 @@ df["RSI"] = ta.momentum.RSIIndicator(
 ).rsi()
 
 # MACD
-macd = ta.trend.MACD(
-    close=df["Close"]
-)
+macd = ta.trend.MACD(close=df["Close"])
 
 df["MACD"] = macd.macd()
+df["MACD_SIGNAL"] = macd.macd_signal()
+df["MACD_DIFF"] = macd.macd_diff()
 
-df["MACD_SIGNAL"] = (
-    macd.macd_signal()
-)
-
-# EMA 20
+# EMA
 df["EMA_20"] = ta.trend.EMAIndicator(
     close=df["Close"],
     window=20
 ).ema_indicator()
 
-# EMA 50
 df["EMA_50"] = ta.trend.EMAIndicator(
     close=df["Close"],
     window=50
 ).ema_indicator()
+
+# SMA
+df["SMA_20"] = ta.trend.SMAIndicator(
+    close=df["Close"],
+    window=20
+).sma_indicator()
+
+# BOLLINGER BANDS
+bb = ta.volatility.BollingerBands(
+    close=df["Close"],
+    window=20,
+    window_dev=2
+)
+
+df["BB_HIGH"] = bb.bollinger_hband()
+df["BB_LOW"] = bb.bollinger_lband()
+df["BB_WIDTH"] = bb.bollinger_wband()
 
 # ATR
 df["ATR"] = ta.volatility.AverageTrueRange(
@@ -73,172 +77,137 @@ df["ATR"] = ta.volatility.AverageTrueRange(
     window=14
 ).average_true_range()
 
-# RETURNS
-df["Returns"] = (
-    df["Close"].pct_change()
+# STOCHASTIC
+stoch = ta.momentum.StochasticOscillator(
+    high=df["High"],
+    low=df["Low"],
+    close=df["Close"],
+    window=14,
+    smooth_window=3
 )
+
+df["STOCH"] = stoch.stoch()
+df["STOCH_SIGNAL"] = stoch.stoch_signal()
+
+# RETURNS
+df["Returns"] = df["Close"].pct_change()
 
 # VOLATILITY
-df["Volatility"] = (
-    df["Returns"].rolling(20).std()
-)
+df["Volatility"] = df["Returns"].rolling(24).std()
+
+# VOLUME CHANGE
+df["Volume_Change"] = df["Volume"].pct_change()
 
 # TREND
-df["Trend"] = (
-    df["EMA_20"] > df["EMA_50"]
-).astype(int)
+df["Trend"] = np.where(
+    df["EMA_20"] > df["EMA_50"],
+    1,
+    0
+)
 
-# =========================================================
+# ======================================================
 # TARGET
-# =========================================================
+# ======================================================
 
-print("Preparing target...")
-
-# Predict next 3 candles
-df["Future_Close"] = (
-    df["Close"].shift(-3)
+df["Future_Return"] = (
+    df["Close"].shift(-6) / df["Close"] - 1
 )
 
 df["Target"] = (
-    df["Future_Close"] > df["Close"]
+    df["Future_Return"] > 0.01
 ).astype(int)
 
-# =========================================================
+# ======================================================
 # CLEAN DATA
-# =========================================================
+# ======================================================
 
-df.replace(
-    [np.inf, -np.inf],
-    np.nan,
-    inplace=True
-)
+# Replace inf values with NaN before dropping rows
+df.replace([np.inf, -np.inf], np.nan, inplace=True)
+df = df.dropna()
 
-df.dropna(inplace=True)
-
-# =========================================================
+# ======================================================
 # FEATURES
-# =========================================================
+# ======================================================
 
 features = [
-
+    "Close",
+    "Volume",
     "RSI",
-
     "MACD",
     "MACD_SIGNAL",
-
+    "MACD_DIFF",
     "EMA_20",
     "EMA_50",
-
+    "SMA_20",
+    "BB_HIGH",
+    "BB_LOW",
+    "BB_WIDTH",
     "ATR",
-
+    "STOCH",
+    "STOCH_SIGNAL",
     "Returns",
-
     "Volatility",
-
+    "Volume_Change",
     "Trend"
 ]
 
-# =========================================================
-# FORCE NUMERIC
-# =========================================================
-
-for col in features:
-
-    df[col] = pd.to_numeric(
-        df[col],
-        errors="coerce"
-    )
-
-df.dropna(inplace=True)
-
-# =========================================================
-# X AND Y
-# =========================================================
-
 X = df[features]
-
 y = df["Target"]
 
-# =========================================================
-# TIME SERIES SPLIT
-# =========================================================
+# ======================================================
+# TRAIN TEST SPLIT
+# ======================================================
 
-split = int(len(df) * 0.8)
+split_index = int(len(df) * 0.8)
 
-X_train = X.iloc[:split]
+X_train = X[:split_index]
+X_test = X[split_index:]
 
-X_test = X.iloc[split:]
+y_train = y[:split_index]
+y_test = y[split_index:]
 
-y_train = y.iloc[:split]
-
-y_test = y.iloc[split:]
-
-# =========================================================
+# ======================================================
 # MODEL
-# =========================================================
-
-print("Training AI model...")
+# ======================================================
 
 model = XGBClassifier(
-
     n_estimators=500,
-
-    max_depth=4,
-
+    max_depth=8,
     learning_rate=0.03,
-
-    subsample=0.8,
-
-    colsample_bytree=0.8,
-
-    gamma=0.3,
-
-    min_child_weight=5,
-
-    reg_alpha=0.5,
-
-    reg_lambda=2,
-
-    objective="binary:logistic",
-
-    eval_metric="logloss",
-
-    random_state=42
+    subsample=0.9,
+    colsample_bytree=0.9,
+    gamma=0.1,
+    random_state=42,
+    eval_metric="logloss"
 )
 
-# =========================================================
+# ======================================================
 # TRAIN
-# =========================================================
+# ======================================================
 
 model.fit(
     X_train,
     y_train
 )
 
-# =========================================================
+# ======================================================
 # PREDICT
-# =========================================================
+# ======================================================
 
-predictions = model.predict(
-    X_test
-)
-
-# =========================================================
-# ACCURACY
-# =========================================================
+predictions = model.predict(X_test)
 
 accuracy = accuracy_score(
     y_test,
     predictions
 )
 
-print("\n========================")
+print("\n==========================")
 print("MODEL ACCURACY:", accuracy)
-print("========================")
+print("==========================")
 
-# =========================================================
+# ======================================================
 # SAVE MODEL
-# =========================================================
+# ======================================================
 
 pickle.dump(
     model,
