@@ -1,183 +1,186 @@
-import pickle
+import ccxt
 import pandas as pd
-import requests
 import ta
+import joblib
+import numpy as np
 
+# ==========================================
+# LOAD MODELS
+# ==========================================
 
+classifier = joblib.load("rf_classifier.pkl")
+regressor = joblib.load("rf_regressor.pkl")
 
-# =========================================
-# LOAD MODEL
-# =========================================
+# ==========================================
+# GET LIVE DATA
+# ==========================================
 
-model = pickle.load(
-    open("btc_model.pkl", "rb")
+exchange = ccxt.binance()
+
+bars = exchange.fetch_ohlcv(
+    'RENDER/USDT',
+    timeframe='1h',
+    limit=300
 )
 
-
-
-# =========================================
-# GET LATEST BTC DATA
-# =========================================
-
-url = "https://api.binance.com/api/v3/klines"
-
-params = {
-    "symbol": "BTCUSDT",
-    "interval": "1d",
-    "limit": 100
-}
-
-
-
-response = requests.get(
-    url,
-    params=params
+df = pd.DataFrame(
+    bars,
+    columns=[
+        'timestamp',
+        'open',
+        'high',
+        'low',
+        'close',
+        'volume'
+    ]
 )
 
-data = response.json()
+# ==========================================
+# INDICATORS
+# ==========================================
 
-
-
-# =========================================
-# CREATE DATAFRAME
-# =========================================
-
-df = pd.DataFrame(data)
-
-
-
-# =========================================
-# SELECT COLUMNS
-# =========================================
-
-df = df[[1,2,3,4,5]]
-
-df.columns = [
-    "Open",
-    "High",
-    "Low",
-    "Close",
-    "Volume"
-]
-
-
-
-# =========================================
-# CONVERT TO FLOAT
-# =========================================
-
-for col in df.columns:
-    df[col] = df[col].astype(float)
-
-
-
-# =========================================
-# TECHNICAL INDICATORS
-# =========================================
-
-# RSI
 df["RSI"] = ta.momentum.RSIIndicator(
-    close=df["Close"]
+    df["close"],
+    window=14
 ).rsi()
 
-
-
-# MACD
-macd = ta.trend.MACD(
-    close=df["Close"]
-)
+macd = ta.trend.MACD(df["close"])
 
 df["MACD"] = macd.macd()
+df["MACD_SIGNAL"] = macd.macd_signal()
 
-
-
-# EMA
-df["EMA_20"] = ta.trend.EMAIndicator(
-    close=df["Close"],
+df["EMA20"] = ta.trend.EMAIndicator(
+    df["close"],
     window=20
 ).ema_indicator()
 
+df["EMA50"] = ta.trend.EMAIndicator(
+    df["close"],
+    window=50
+).ema_indicator()
 
+df["EMA200"] = ta.trend.EMAIndicator(
+    df["close"],
+    window=200
+).ema_indicator()
 
-# SMA
-df["SMA_20"] = ta.trend.SMAIndicator(
-    close=df["Close"],
-    window=20
-).sma_indicator()
+df["ATR"] = ta.volatility.AverageTrueRange(
+    df["high"],
+    df["low"],
+    df["close"]
+).average_true_range()
 
+df["Returns"] = df["close"].pct_change()
 
-
-# RETURNS
-df["Returns"] = df["Close"].pct_change()
-
-
-
-# =========================================
-# REMOVE EMPTY ROWS
-# =========================================
-
-df = df.dropna()
-
-
-
-# =========================================
-# LATEST ROW
-# =========================================
-
-latest = df[[
-    "Close",
-    "Volume",
-    "RSI",
-    "MACD",
-    "EMA_20",
-    "SMA_20",
-    "Returns"
-]].tail(1)
-
-
-
-# =========================================
-# PREDICT
-# =========================================
-
-prediction = model.predict(latest)
-
-
-
-# =========================================
-# OUTPUT
-# =========================================
-
-if prediction[0] == 1:
-    print("Prediction: BTC may go UP")
-else:
-    print("Prediction: BTC may go DOWN")import pickle
-import numpy as np
-
-
-
-# LOAD MODEL
-model = pickle.load(
-    open("btc_model.pkl", "rb")
+df["Volatility"] = (
+    df["Returns"]
+    .rolling(24)
+    .std()
 )
 
+df["Momentum"] = (
+    df["close"] -
+    df["close"].shift(5)
+)
 
+df.dropna(inplace=True)
 
-# NEW DATA
-# Close, Volume
-new_data = np.array([
-    [65000, 30000000000]
-])
+# ==========================================
+# FEATURES
+# ==========================================
 
+latest = pd.DataFrame([{
+    "close": df["close"].iloc[-1],
+    "volume": df["volume"].iloc[-1],
+    "RSI": df["RSI"].iloc[-1],
+    "MACD": df["MACD"].iloc[-1],
+    "MACD_SIGNAL": df["MACD_SIGNAL"].iloc[-1],
+    "EMA20": df["EMA20"].iloc[-1],
+    "EMA50": df["EMA50"].iloc[-1],
+    "EMA200": df["EMA200"].iloc[-1],
+    "ATR": df["ATR"].iloc[-1],
+    "Volatility": df["Volatility"].iloc[-1],
+    "Momentum": df["Momentum"].iloc[-1]
+}])
 
+# ==========================================
+# PREDICTION
+# ==========================================
 
-# PREDICT
-prediction = model.predict(new_data)
+prediction = classifier.predict(latest)[0]
 
+predicted_price = regressor.predict(latest)[0]
 
+prob = classifier.predict_proba(latest)[0]
 
-# OUTPUT
-if prediction[0] == 1:
-    print("BTC may go UP")
-else:
-    print("BTC may go DOWN")
+confidence = round(
+    np.max(prob) * 100,
+    2
+)
+
+# ==========================================
+# SIGNAL LOGIC
+# ==========================================
+
+signal_map = {
+    2: "STRONG BUY",
+    1: "BUY",
+    0: "SIDEWAYS",
+    -1: "SELL",
+    -2: "STRONG SELL"
+}
+
+signal = signal_map.get(
+    prediction,
+    "SIDEWAYS"
+)
+
+# ==========================================
+# EXTRA TREND FILTER
+# ==========================================
+
+price = df["close"].iloc[-1]
+
+ema20 = df["EMA20"].iloc[-1]
+ema50 = df["EMA50"].iloc[-1]
+ema200 = df["EMA200"].iloc[-1]
+
+rsi = df["RSI"].iloc[-1]
+
+macd_now = df["MACD"].iloc[-1]
+
+if (
+    price > ema20
+    and ema20 > ema50
+    and ema50 > ema200
+    and rsi > 55
+    and macd_now > 0
+):
+    signal = "STRONG BUY"
+
+elif (
+    price < ema20
+    and ema20 < ema50
+    and ema50 < ema200
+    and rsi < 45
+    and macd_now < 0
+):
+    signal = "STRONG SELL"
+
+# ==========================================
+# PRINT RESULT
+# ==========================================
+
+print("\n============================")
+print("LIVE AI PREDICTION")
+print("============================")
+
+print(f"\nCurrent Price : ${price:.4f}")
+
+print(f"\nPredicted Price : ${predicted_price:.4f}")
+
+print(f"\nSignal : {signal}")
+
+print(f"\nConfidence : {confidence}%")
+
+print("\n============================")
