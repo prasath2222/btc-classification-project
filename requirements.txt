@@ -1,7 +1,5 @@
 streamlit
+ccxt
 pandas
-numpy
-yfinance
 ta
-plotly
-streamlit-autorefresh
+tradingview_ta
