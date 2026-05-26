@@ -1,9 +1,9 @@
 streamlit
+plotly
 ccxt
 pandas
 numpy
 ta
-plotly
 joblib
 xgboost
 scikit-learn
