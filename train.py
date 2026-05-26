@@ -1,217 +1,483 @@
-!pip install ta # Install the 'ta' library
+# =========================================================
+# BEST ADVANCED TRAIN.PY
+# MARKET STRUCTURE + MOMENTUM + BTC CORRELATION
+# =========================================================
 
-import yfinance as yf
+import ccxt
 import pandas as pd
 import numpy as np
 import ta
-import pickle
+import joblib
 
 from xgboost import XGBClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+from xgboost import XGBRegressor
 
+# =========================================================
+# EXCHANGE
+# =========================================================
 
-# ======================================================
-# DOWNLOAD BTC DATA
-# ======================================================
+exchange = ccxt.binance()
 
-df = yf.download(
-    "BTC-USD",
-    period="730d",
-    interval="1h"
+# =========================================================
+# RNDR DATA
+# =========================================================
+
+bars = exchange.fetch_ohlcv(
+    'RENDER/USDT',
+    timeframe='1h',
+    limit=15000
 )
 
-# FIX MULTI INDEX
-df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+df = pd.DataFrame(
+    bars,
+    columns=[
+        'timestamp',
+        'open',
+        'high',
+        'low',
+        'close',
+        'volume'
+    ]
+)
 
-# ======================================================
-# TECHNICAL INDICATORS
-# ======================================================
+# =========================================================
+# BTC DATA
+# =========================================================
 
+btc_bars = exchange.fetch_ohlcv(
+    'BTC/USDT',
+    timeframe='1h',
+    limit=15000
+)
+
+btc_df = pd.DataFrame(
+    btc_bars,
+    columns=[
+        'timestamp',
+        'btc_open',
+        'btc_high',
+        'btc_low',
+        'btc_close',
+        'btc_volume'
+    ]
+)
+
+# =========================================================
+# BTC FEATURES
+# =========================================================
+
+df["BTC_Close"] = btc_df["btc_close"]
+
+df["BTC_Return"] = (
+    df["BTC_Close"]
+    .pct_change()
+)
+
+# =========================================================
 # RSI
+# =========================================================
+
 df["RSI"] = ta.momentum.RSIIndicator(
-    close=df["Close"],
+    close=df["close"],
     window=14
 ).rsi()
 
+# =========================================================
 # MACD
-macd = ta.trend.MACD(close=df["Close"])
+# =========================================================
+
+macd = ta.trend.MACD(
+    close=df["close"]
+)
 
 df["MACD"] = macd.macd()
-df["MACD_SIGNAL"] = macd.macd_signal()
-df["MACD_DIFF"] = macd.macd_diff()
 
+df["MACD_SIGNAL"] = (
+    macd.macd_signal()
+)
+
+df["MACD_DIFF"] = (
+    macd.macd_diff()
+)
+
+# =========================================================
 # EMA
-df["EMA_20"] = ta.trend.EMAIndicator(
-    close=df["Close"],
+# =========================================================
+
+df["EMA20"] = ta.trend.EMAIndicator(
+    close=df["close"],
     window=20
 ).ema_indicator()
 
-df["EMA_50"] = ta.trend.EMAIndicator(
-    close=df["Close"],
+df["EMA50"] = ta.trend.EMAIndicator(
+    close=df["close"],
     window=50
 ).ema_indicator()
 
-# SMA
-df["SMA_20"] = ta.trend.SMAIndicator(
-    close=df["Close"],
-    window=20
-).sma_indicator()
+df["EMA200"] = ta.trend.EMAIndicator(
+    close=df["close"],
+    window=200
+).ema_indicator()
 
-# BOLLINGER BANDS
-bb = ta.volatility.BollingerBands(
-    close=df["Close"],
-    window=20,
-    window_dev=2
-)
-
-df["BB_HIGH"] = bb.bollinger_hband()
-df["BB_LOW"] = bb.bollinger_lband()
-df["BB_WIDTH"] = bb.bollinger_wband()
-
+# =========================================================
 # ATR
-df["ATR"] = ta.volatility.AverageTrueRange(
-    high=df["High"],
-    low=df["Low"],
-    close=df["Close"],
-    window=14
-).average_true_range()
+# =========================================================
 
-# STOCHASTIC
-stoch = ta.momentum.StochasticOscillator(
-    high=df["High"],
-    low=df["Low"],
-    close=df["Close"],
-    window=14,
-    smooth_window=3
+df["ATR"] = (
+    ta.volatility.AverageTrueRange(
+        high=df["high"],
+        low=df["low"],
+        close=df["close"],
+        window=14
+    )
+    .average_true_range()
 )
 
-df["STOCH"] = stoch.stoch()
-df["STOCH_SIGNAL"] = stoch.stoch_signal()
+# =========================================================
+# BOLLINGER
+# =========================================================
 
+bb = ta.volatility.BollingerBands(
+    close=df["close"],
+    window=20
+)
+
+df["BB_HIGH"] = (
+    bb.bollinger_hband()
+)
+
+df["BB_LOW"] = (
+    bb.bollinger_lband()
+)
+
+df["BB_WIDTH"] = (
+    bb.bollinger_wband()
+)
+
+# =========================================================
 # RETURNS
-df["Returns"] = df["Close"].pct_change()
+# =========================================================
 
+df["Returns"] = (
+    df["close"]
+    .pct_change()
+)
+
+# =========================================================
 # VOLATILITY
-df["Volatility"] = df["Returns"].rolling(24).std()
+# =========================================================
 
-# VOLUME CHANGE
-df["Volume_Change"] = df["Volume"].pct_change()
+df["Volatility"] = (
+    df["Returns"]
+    .rolling(24)
+    .std()
+)
 
-# TREND
-df["Trend"] = np.where(
-    df["EMA_20"] > df["EMA_50"],
+# =========================================================
+# MOMENTUM
+# =========================================================
+
+df["Momentum5"] = (
+    df["close"]
+    - df["close"].shift(5)
+)
+
+df["Momentum10"] = (
+    df["close"]
+    - df["close"].shift(10)
+)
+
+# =========================================================
+# MARKET STRUCTURE
+# =========================================================
+
+df["Higher_High"] = (
+    df["high"]
+    > df["high"].shift(1)
+).astype(int)
+
+df["Higher_Low"] = (
+    df["low"]
+    > df["low"].shift(1)
+).astype(int)
+
+# =========================================================
+# BREAKOUT
+# =========================================================
+
+df["Breakout"] = (
+    df["close"]
+    >
+    df["high"]
+    .rolling(20)
+    .max()
+    .shift(1)
+).astype(int)
+
+# =========================================================
+# VOLUME SPIKE
+# =========================================================
+
+df["Volume_MA"] = (
+    df["volume"]
+    .rolling(20)
+    .mean()
+)
+
+df["Volume_Spike"] = (
+    df["volume"]
+    >
+    (df["Volume_MA"] * 2)
+).astype(int)
+
+# =========================================================
+# CANDLE FEATURES
+# =========================================================
+
+df["Body"] = abs(
+    df["close"] - df["open"]
+)
+
+df["Upper_Wick"] = (
+    df["high"]
+    -
+    df[["close", "open"]]
+    .max(axis=1)
+)
+
+df["Lower_Wick"] = (
+    df[["close", "open"]]
+    .min(axis=1)
+    -
+    df["low"]
+)
+
+# =========================================================
+# TREND REGIME
+# =========================================================
+
+df["Bull_Trend"] = np.where(
+    (
+        (df["EMA20"] > df["EMA50"])
+        &
+        (df["EMA50"] > df["EMA200"])
+    ),
     1,
     0
 )
 
-# ======================================================
-# TARGET
-# ======================================================
+# =========================================================
+# FUTURE TARGET
+# =========================================================
 
-df["Future_Return"] = (
-    df["Close"].shift(-6) / df["Close"] - 1
+future_period = 6
+
+df["Future_Close"] = (
+    df["close"]
+    .shift(-future_period)
 )
 
-df["Target"] = (
-    df["Future_Return"] > 0.01
-).astype(int)
+future_return = (
+    (df["Future_Close"] - df["close"])
+    / df["close"]
+)
 
-# ======================================================
-# CLEAN DATA
-# ======================================================
+# =========================================================
+# MULTI CLASS TARGET
+# =========================================================
 
-# Replace inf values with NaN before dropping rows
-df.replace([np.inf, -np.inf], np.nan, inplace=True)
-df = df.dropna()
+conditions = [
 
-# ======================================================
+    future_return > 0.04,
+
+    (
+        (future_return > 0.01)
+        &
+        (future_return <= 0.04)
+    ),
+
+    (
+        (future_return >= -0.01)
+        &
+        (future_return <= 0.01)
+    ),
+
+    (
+        (future_return < -0.01)
+        &
+        (future_return >= -0.04)
+    ),
+
+    future_return < -0.04
+
+]
+
+choices = [
+    2,
+    1,
+    0,
+    -1,
+    -2
+]
+
+df["Target"] = np.select(
+    conditions,
+    choices,
+    default=0
+)
+
+# =========================================================
+# CLEAN
+# =========================================================
+
+df.replace(
+    [np.inf, -np.inf],
+    np.nan,
+    inplace=True
+)
+
+df.dropna(inplace=True)
+
+# =========================================================
 # FEATURES
-# ======================================================
+# =========================================================
 
 features = [
-    "Close",
-    "Volume",
+
+    "close",
+    "volume",
+
+    "BTC_Close",
+    "BTC_Return",
+
     "RSI",
+
     "MACD",
     "MACD_SIGNAL",
     "MACD_DIFF",
-    "EMA_20",
-    "EMA_50",
-    "SMA_20",
+
+    "EMA20",
+    "EMA50",
+    "EMA200",
+
+    "ATR",
+
     "BB_HIGH",
     "BB_LOW",
     "BB_WIDTH",
-    "ATR",
-    "STOCH",
-    "STOCH_SIGNAL",
+
     "Returns",
+
     "Volatility",
-    "Volume_Change",
-    "Trend"
+
+    "Momentum5",
+    "Momentum10",
+
+    "Higher_High",
+    "Higher_Low",
+
+    "Breakout",
+
+    "Volume_Spike",
+
+    "Body",
+    "Upper_Wick",
+    "Lower_Wick",
+
+    "Bull_Trend"
 ]
 
 X = df[features]
-y = df["Target"]
 
-# ======================================================
-# TRAIN TEST SPLIT
-# ======================================================
+# =========================================================
+# TARGETS
+# =========================================================
 
-split_index = int(len(df) * 0.8)
+y_class = df["Target"]
 
-X_train = X[:split_index]
-X_test = X[split_index:]
+y_reg = df["Future_Close"]
 
-y_train = y[:split_index]
-y_test = y[split_index:]
+# =========================================================
+# CLASSIFIER
+# =========================================================
 
-# ======================================================
-# MODEL
-# ======================================================
+classifier = XGBClassifier(
 
-model = XGBClassifier(
-    n_estimators=500,
-    max_depth=8,
+    n_estimators=400,
+
+    max_depth=10,
+
     learning_rate=0.03,
+
     subsample=0.9,
+
     colsample_bytree=0.9,
+
     gamma=0.1,
+
     random_state=42,
-    eval_metric="logloss"
+
+    eval_metric="mlogloss"
 )
 
-# ======================================================
+# =========================================================
+# REGRESSOR
+# =========================================================
+
+regressor = XGBRegressor(
+
+    n_estimators=400,
+
+    max_depth=10,
+
+    learning_rate=0.03,
+
+    subsample=0.9,
+
+    colsample_bytree=0.9,
+
+    random_state=42
+)
+
+# =========================================================
 # TRAIN
-# ======================================================
+# =========================================================
 
-model.fit(
-    X_train,
-    y_train
+classifier.fit(
+    X,
+    y_class
 )
 
-# ======================================================
-# PREDICT
-# ======================================================
-
-predictions = model.predict(X_test)
-
-accuracy = accuracy_score(
-    y_test,
-    predictions
+regressor.fit(
+    X,
+    y_reg
 )
 
-print("\n==========================")
-print("MODEL ACCURACY:", accuracy)
-print("==========================")
+# =========================================================
+# SAVE
+# =========================================================
 
-# ======================================================
-# SAVE MODEL
-# ======================================================
-
-pickle.dump(
-    model,
-    open("btc_model.pkl", "wb")
+joblib.dump(
+    classifier,
+    "rf_classifier.pkl"
 )
 
-print("\nModel saved successfully!")
+joblib.dump(
+    regressor,
+    "rf_regressor.pkl"
+)
+
+joblib.dump(
+    features,
+    "features.pkl"
+)
+
+print("\n=================================")
+print("ADVANCED AI MODELS TRAINED")
+print("=================================")
+
+print("\nFILES SAVED:")
+print("rf_classifier.pkl")
+print("rf_regressor.pkl")
+print("features.pkl")
+print("=================================")
