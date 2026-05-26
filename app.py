@@ -1,22 +1,12 @@
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
-
+import yfinance as yf
 import pandas as pd
 import numpy as np
-import yfinance as yf
 import ta
-import pickle
-
 import plotly.graph_objects as go
-
-# =========================================================
-# AUTO REFRESH
-# =========================================================
-
-st_autorefresh(
-    interval=300000,
-    key="btc_refresh"
-)
+import plotly.express as px
+import pickle
+from streamlit_autorefresh import st_autorefresh
 
 # =========================================================
 # PAGE CONFIG
@@ -28,107 +18,62 @@ st.set_page_config(
 )
 
 # =========================================================
+# AUTO REFRESH
+# =========================================================
+
+st_autorefresh(interval=5000, key="btc_refresh")
+
+# =========================================================
+# LOAD MODEL
+# =========================================================
+
+model = pickle.load(open("btc_model.pkl", "rb"))
+
+# =========================================================
 # TITLE
 # =========================================================
 
 st.title("BTC AI Prediction Dashboard")
 
 # =========================================================
-# LOAD MODEL
+# DOWNLOAD BTC DATA
 # =========================================================
 
-model = pickle.load(
-    open("btc_model.pkl", "rb")
-)
+@st.cache_data(ttl=60)
+def load_data():
 
-# =========================================================
-# DOWNLOAD DATA
-# =========================================================
-
-df = yf.download(
-    "BTC-USD",
-    period="730d",
-    interval="1h",
-    auto_adjust=True
-)
-
-# =========================================================
-# FIX EMPTY DATA
-# =========================================================
-
-if df.empty:
-    st.error("Failed to download BTC data")
-    st.stop()
-
-# =========================================================
-# FIX MULTI INDEX
-# =========================================================
-
-if isinstance(df.columns, pd.MultiIndex):
-    df.columns = df.columns.get_level_values(0)
-
-# =========================================================
-# REQUIRED COLUMNS
-# =========================================================
-
-required_cols = [
-    "Open",
-    "High",
-    "Low",
-    "Close",
-    "Volume"
-]
-
-for col in required_cols:
-
-    if col not in df.columns:
-        st.error(f"Missing column: {col}")
-        st.stop()
-
-# =========================================================
-# FORCE NUMERIC
-# =========================================================
-
-for col in required_cols:
-
-    df[col] = pd.to_numeric(
-        df[col],
-        errors="coerce"
+    df = yf.download(
+        "BTC-USD",
+        period="60d",
+        interval="1h"
     )
 
-# =========================================================
-# DROP NAN
-# =========================================================
+    df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
 
-df.dropna(inplace=True)
+    df = df.dropna()
 
-# =========================================================
-# CHECK DATA SIZE
-# =========================================================
+    return df
 
-if len(df) < 100:
-    st.error("Not enough BTC data")
-    st.stop()
+df = load_data()
 
 # =========================================================
-# INDICATORS
+# TECHNICAL INDICATORS
 # =========================================================
 
+# RSI
 df["RSI"] = ta.momentum.RSIIndicator(
     close=df["Close"],
     window=14
 ).rsi()
 
-macd = ta.trend.MACD(
-    close=df["Close"]
-)
+# MACD
+macd = ta.trend.MACD(close=df["Close"])
 
 df["MACD"] = macd.macd()
+df["MACD_SIGNAL"] = macd.macd_signal()
+df["MACD_DIFF"] = macd.macd_diff()
 
-df["MACD_SIGNAL"] = (
-    macd.macd_signal()
-)
-
+# EMA
 df["EMA_20"] = ta.trend.EMAIndicator(
     close=df["Close"],
     window=20
@@ -139,6 +84,24 @@ df["EMA_50"] = ta.trend.EMAIndicator(
     window=50
 ).ema_indicator()
 
+# SMA
+df["SMA_20"] = ta.trend.SMAIndicator(
+    close=df["Close"],
+    window=20
+).sma_indicator()
+
+# BOLLINGER BANDS
+bb = ta.volatility.BollingerBands(
+    close=df["Close"],
+    window=20,
+    window_dev=2
+)
+
+df["BB_HIGH"] = bb.bollinger_hband()
+df["BB_LOW"] = bb.bollinger_lband()
+df["BB_WIDTH"] = bb.bollinger_wband()
+
+# ATR
 df["ATR"] = ta.volatility.AverageTrueRange(
     high=df["High"],
     low=df["Low"],
@@ -146,203 +109,314 @@ df["ATR"] = ta.volatility.AverageTrueRange(
     window=14
 ).average_true_range()
 
-df["Returns"] = (
-    df["Close"].pct_change()
+# STOCHASTIC
+stoch = ta.momentum.StochasticOscillator(
+    high=df["High"],
+    low=df["Low"],
+    close=df["Close"],
+    window=14,
+    smooth_window=3
 )
 
-df["Volatility"] = (
-    df["Returns"].rolling(20).std()
-)
+df["STOCH"] = stoch.stoch()
+df["STOCH_SIGNAL"] = stoch.stoch_signal()
 
-df["Trend"] = (
-    df["EMA_20"] > df["EMA_50"]
-).astype(int)
+# RETURNS
+df["Returns"] = df["Close"].pct_change()
+
+# VOLATILITY
+df["Volatility"] = df["Returns"].rolling(24).std()
+
+# VOLUME CHANGE
+df["Volume_Change"] = df["Volume"].pct_change()
+
+# TREND
+df["Trend"] = np.where(
+    df["EMA_20"] > df["EMA_50"],
+    1,
+    0
+)
 
 # =========================================================
 # CLEAN DATA
 # =========================================================
 
-df.replace(
-    [np.inf, -np.inf],
-    np.nan,
-    inplace=True
-)
-
-df.dropna(inplace=True)
+df = df.dropna()
 
 # =========================================================
 # FEATURES
 # =========================================================
 
 features = [
-
+    "Close",
+    "Volume",
     "RSI",
-
     "MACD",
     "MACD_SIGNAL",
-
+    "MACD_DIFF",
     "EMA_20",
     "EMA_50",
-
+    "SMA_20",
+    "BB_HIGH",
+    "BB_LOW",
+    "BB_WIDTH",
     "ATR",
-
+    "STOCH",
+    "STOCH_SIGNAL",
     "Returns",
-
     "Volatility",
-
+    "Volume_Change",
     "Trend"
 ]
-
-# =========================================================
-# FINAL CHECK
-# =========================================================
-
-for col in features:
-
-    if col not in df.columns:
-        st.error(f"Missing feature: {col}")
-        st.stop()
 
 # =========================================================
 # LATEST DATA
 # =========================================================
 
-latest = df[features].iloc[-1:]
+latest = df[features].tail(1)
 
 # =========================================================
-# PREDICT
+# AI PREDICTION
 # =========================================================
 
-prediction = model.predict(
-    latest
-)[0]
+prediction = model.predict(latest)[0]
+
+try:
+    probability = model.predict_proba(latest)[0]
+
+    up_probability = probability[1] * 100
+    down_probability = probability[0] * 100
+
+except:
+    up_probability = 0
+    down_probability = 0
 
 # =========================================================
-# PRICE
+# LIVE PRICE
 # =========================================================
 
-current_price = float(
-    df["Close"].iloc[-1]
-)
+current_price = df["Close"].iloc[-1]
+previous_price = df["Close"].iloc[-2]
 
-previous_price = float(
-    df["Close"].iloc[-2]
-)
-
-price_change = (
-    current_price - previous_price
-)
+price_change = current_price - previous_price
 
 # =========================================================
-# PRICE DISPLAY
+# PRICE SECTION
 # =========================================================
 
 st.subheader("Live BTC Price")
 
-st.metric(
-    label="BTC/USD",
-    value=f"${current_price:,.2f}",
-    delta=f"{price_change:.2f}"
-)
+col1, col2 = st.columns(2)
+
+with col1:
+
+    st.metric(
+        label="BTC/USD",
+        value=f"${current_price:,.2f}",
+        delta=f"{price_change:.2f}"
+    )
+
+with col2:
+
+    st.metric(
+        label="AI Bullish Probability",
+        value=f"{up_probability:.2f}%"
+    )
 
 # =========================================================
-# AI RESULT
+# AI SIGNAL
 # =========================================================
 
 if prediction == 1:
 
     st.success(
-        "AI Prediction: BTC may go UP"
+        f"AI Prediction: BTC may go UP | Confidence: {up_probability:.2f}%"
     )
 
 else:
 
     st.error(
-        "AI Prediction: BTC may go DOWN"
+        f"AI Prediction: BTC may go DOWN | Confidence: {down_probability:.2f}%"
     )
 
 # =========================================================
-# RSI STATUS
+# RSI SIGNAL
 # =========================================================
 
-latest_rsi = float(
-    df["RSI"].iloc[-1]
-)
+latest_rsi = df["RSI"].iloc[-1]
 
 if latest_rsi > 70:
 
-    st.warning(
-        f"RSI Overbought : {latest_rsi:.2f}"
-    )
+    st.warning(f"RSI Overbought : {latest_rsi:.2f}")
 
 elif latest_rsi < 30:
 
-    st.success(
-        f"RSI Oversold : {latest_rsi:.2f}"
-    )
+    st.success(f"RSI Oversold : {latest_rsi:.2f}")
 
 else:
 
-    st.info(
-        f"RSI Neutral : {latest_rsi:.2f}"
-    )
+    st.info(f"RSI Neutral : {latest_rsi:.2f}")
 
 # =========================================================
-# MACD STATUS
+# MACD SIGNAL
 # =========================================================
 
-latest_macd = float(
-    df["MACD"].iloc[-1]
-)
-
-latest_signal = float(
-    df["MACD_SIGNAL"].iloc[-1]
-)
+latest_macd = df["MACD"].iloc[-1]
+latest_signal = df["MACD_SIGNAL"].iloc[-1]
 
 if latest_macd > latest_signal:
 
-    st.success(
-        "MACD Bullish Crossover"
-    )
+    st.success("MACD Bullish Crossover")
 
 else:
 
-    st.error(
-        "MACD Bearish Crossover"
-    )
+    st.error("MACD Bearish Crossover")
 
 # =========================================================
-# BTC PRICE CHART
+# CANDLESTICK CHART
 # =========================================================
 
-st.subheader("BTC Close Price")
+st.subheader("BTC Live Candlestick Chart")
 
-fig = go.Figure()
+chart_df = df.tail(200)
 
-fig.add_trace(
-    go.Scatter(
-        y=df["Close"],
-        mode="lines",
-        name="BTC Price"
-    )
+fig = go.Figure(
+    data=[
+        go.Candlestick(
+            x=chart_df.index,
+            open=chart_df["Open"],
+            high=chart_df["High"],
+            low=chart_df["Low"],
+            close=chart_df["Close"],
+            name="BTC"
+        )
+    ]
 )
 
 fig.update_layout(
     template="plotly_dark",
+    height=700,
+    xaxis_rangeslider_visible=False,
+    title="BTC/USD Live Candlestick"
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# =========================================================
+# RSI CHART
+# =========================================================
+
+st.subheader("RSI")
+
+rsi_df = df.tail(200)
+
+fig_rsi = go.Figure()
+
+fig_rsi.add_trace(
+    go.Scatter(
+        x=rsi_df.index,
+        y=rsi_df["RSI"],
+        mode="lines",
+        name="RSI"
+    )
+)
+
+fig_rsi.add_hline(y=70)
+fig_rsi.add_hline(y=30)
+
+fig_rsi.update_layout(
+    template="plotly_dark",
+    height=400
+)
+
+st.plotly_chart(fig_rsi, use_container_width=True)
+
+# =========================================================
+# MACD CHART
+# =========================================================
+
+st.subheader("MACD")
+
+macd_df = df.tail(200)
+
+fig_macd = go.Figure()
+
+fig_macd.add_trace(
+    go.Scatter(
+        x=macd_df.index,
+        y=macd_df["MACD"],
+        mode="lines",
+        name="MACD"
+    )
+)
+
+fig_macd.add_trace(
+    go.Scatter(
+        x=macd_df.index,
+        y=macd_df["MACD_SIGNAL"],
+        mode="lines",
+        name="MACD SIGNAL"
+    )
+)
+
+fig_macd.update_layout(
+    template="plotly_dark",
+    height=400
+)
+
+st.plotly_chart(fig_macd, use_container_width=True)
+
+# =========================================================
+# EMA CHART
+# =========================================================
+
+st.subheader("EMA 20 vs EMA 50")
+
+ema_df = df.tail(200)
+
+fig_ema = go.Figure()
+
+fig_ema.add_trace(
+    go.Scatter(
+        x=ema_df.index,
+        y=ema_df["Close"],
+        mode="lines",
+        name="Close"
+    )
+)
+
+fig_ema.add_trace(
+    go.Scatter(
+        x=ema_df.index,
+        y=ema_df["EMA_20"],
+        mode="lines",
+        name="EMA 20"
+    )
+)
+
+fig_ema.add_trace(
+    go.Scatter(
+        x=ema_df.index,
+        y=ema_df["EMA_50"],
+        mode="lines",
+        name="EMA 50"
+    )
+)
+
+fig_ema.update_layout(
+    template="plotly_dark",
     height=500
 )
 
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
+st.plotly_chart(fig_ema, use_container_width=True)
 
 # =========================================================
-# LATEST DATA
+# DATA TABLE
 # =========================================================
 
 st.subheader("Latest BTC Data")
 
 st.dataframe(
-    df.tail(10)
+    df.tail(10),
+    use_container_width=True
 )
