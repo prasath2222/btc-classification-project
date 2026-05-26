@@ -1,10 +1,10 @@
 streamlit
-streamlit-autorefresh
 pandas
 numpy
 yfinance
 ta
-scikit-learn
-xgboost
-websocket-client
 plotly
+xgboost
+scikit-learn
+streamlit-autorefresh
+tradingview-ta
