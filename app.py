@@ -4,10 +4,8 @@ import numpy as np
 import yfinance as yf
 import ta
 import pickle
-from xgboost import XGBClassifier
-from streamlit_autorefresh import st_autorefresh
-from tradingview_ta import TA_Handler, Interval
 import plotly.graph_objects as go
+from streamlit_autorefresh import st_autorefresh
 
 # =========================================================
 # PAGE CONFIG
@@ -18,10 +16,17 @@ st.set_page_config(
     layout="wide"
 )
 
-st_autorefresh(interval=60000, key="refresh")
+# =========================================================
+# AUTO REFRESH
+# =========================================================
+
+st_autorefresh(
+    interval=60000,
+    key="btc_refresh"
+)
 
 # =========================================================
-# DARK STYLE
+# DARK THEME CSS
 # =========================================================
 
 st.markdown("""
@@ -36,41 +41,36 @@ body {
     background-color: #050816;
 }
 
-.big-font {
-    font-size: 48px;
+.main-title {
+    font-size: 52px;
     font-weight: bold;
+    color: white;
 }
 
 .card {
     padding: 20px;
-    border-radius: 15px;
-    margin-bottom: 15px;
+    border-radius: 18px;
+    margin-bottom: 18px;
 }
 
 .green-card {
     background-color: rgba(0,255,100,0.15);
-    border: 1px solid rgba(0,255,100,0.3);
+    border: 1px solid rgba(0,255,100,0.4);
 }
 
 .red-card {
     background-color: rgba(255,0,80,0.15);
-    border: 1px solid rgba(255,0,80,0.3);
+    border: 1px solid rgba(255,0,80,0.4);
 }
 
 .blue-card {
     background-color: rgba(0,120,255,0.15);
-    border: 1px solid rgba(0,120,255,0.3);
+    border: 1px solid rgba(0,120,255,0.4);
 }
 
 .indicator-title {
-    font-size: 20px;
+    font-size: 22px;
     font-weight: bold;
-}
-
-.metric-box {
-    background-color: #0b1220;
-    padding: 20px;
-    border-radius: 20px;
 }
 
 </style>
@@ -80,16 +80,21 @@ body {
 # TITLE
 # =========================================================
 
-st.title("BTC AI Prediction Dashboard")
+st.markdown(
+    '<p class="main-title">BTC AI Prediction Dashboard</p>',
+    unsafe_allow_html=True
+)
 
 # =========================================================
 # LOAD MODEL
 # =========================================================
 
-model = pickle.load(open("btc_model.pkl", "rb"))
+model = pickle.load(
+    open("btc_model.pkl", "rb")
+)
 
 # =========================================================
-# DOWNLOAD LIVE BTC DATA
+# DOWNLOAD BTC DATA
 # =========================================================
 
 df = yf.download(
@@ -104,6 +109,7 @@ df = yf.download(
 # =========================================================
 
 if isinstance(df.columns, pd.MultiIndex):
+
     df.columns = df.columns.get_level_values(0)
 
 # =========================================================
@@ -113,23 +119,32 @@ if isinstance(df.columns, pd.MultiIndex):
 df = df.reset_index()
 
 # =========================================================
-# TECHNICAL INDICATORS
+# RSI
 # =========================================================
 
-# RSI
 df["RSI"] = ta.momentum.RSIIndicator(
     close=df["Close"],
     window=14
 ).rsi()
 
+# =========================================================
 # MACD
-macd = ta.trend.MACD(df["Close"])
+# =========================================================
+
+macd = ta.trend.MACD(
+    close=df["Close"]
+)
 
 df["MACD"] = macd.macd()
+
 df["MACD_SIGNAL"] = macd.macd_signal()
+
 df["MACD_DIFF"] = macd.macd_diff()
 
+# =========================================================
 # EMA
+# =========================================================
+
 df["EMA_20"] = ta.trend.EMAIndicator(
     close=df["Close"],
     window=20
@@ -140,23 +155,34 @@ df["EMA_50"] = ta.trend.EMAIndicator(
     window=50
 ).ema_indicator()
 
+# =========================================================
 # SMA
+# =========================================================
+
 df["SMA_20"] = ta.trend.SMAIndicator(
     close=df["Close"],
     window=20
 ).sma_indicator()
 
+# =========================================================
 # BOLLINGER BANDS
+# =========================================================
+
 bb = ta.volatility.BollingerBands(
     close=df["Close"],
     window=20
 )
 
 df["BB_HIGH"] = bb.bollinger_hband()
+
 df["BB_LOW"] = bb.bollinger_lband()
+
 df["BB_WIDTH"] = bb.bollinger_wband()
 
+# =========================================================
 # ATR
+# =========================================================
+
 df["ATR"] = ta.volatility.AverageTrueRange(
     high=df["High"],
     low=df["Low"],
@@ -164,7 +190,10 @@ df["ATR"] = ta.volatility.AverageTrueRange(
     window=14
 ).average_true_range()
 
+# =========================================================
 # STOCHASTIC
+# =========================================================
+
 stoch = ta.momentum.StochasticOscillator(
     high=df["High"],
     low=df["Low"],
@@ -173,18 +202,38 @@ stoch = ta.momentum.StochasticOscillator(
 )
 
 df["STOCH"] = stoch.stoch()
+
 df["STOCH_SIGNAL"] = stoch.stoch_signal()
 
+# =========================================================
 # RETURNS
+# =========================================================
+
 df["Returns"] = df["Close"].pct_change()
 
+# =========================================================
 # VOLATILITY
-df["Volatility"] = df["Returns"].rolling(20).std()
+# =========================================================
 
+df["Volatility"] = (
+    df["Returns"]
+    .rolling(20)
+    .std()
+)
+
+# =========================================================
 # VOLUME CHANGE
-df["Volume_Change"] = df["Volume"].pct_change()
+# =========================================================
 
+df["Volume_Change"] = (
+    df["Volume"]
+    .pct_change()
+)
+
+# =========================================================
 # TREND
+# =========================================================
+
 df["Trend"] = np.where(
     df["Close"].shift(-1) > df["Close"],
     1,
@@ -192,7 +241,7 @@ df["Trend"] = np.where(
 )
 
 # =========================================================
-# CLEAN NAN
+# REMOVE NaN
 # =========================================================
 
 df = df.dropna()
@@ -233,15 +282,24 @@ prediction = model.predict(latest)[0]
 
 probability = model.predict_proba(latest)[0]
 
-confidence = round(max(probability) * 100, 2)
+confidence = round(
+    max(probability) * 100,
+    2
+)
 
 # =========================================================
 # LIVE PRICE
 # =========================================================
 
-live_price = round(df["Close"].iloc[-1], 2)
+live_price = round(
+    df["Close"].iloc[-1],
+    2
+)
 
-previous_price = round(df["Close"].iloc[-2], 2)
+previous_price = round(
+    df["Close"].iloc[-2],
+    2
+)
 
 price_change = round(
     live_price - previous_price,
@@ -274,10 +332,10 @@ if prediction == 1:
     st.markdown(f"""
     <div class="card green-card">
         <div class="indicator-title">
-            AI Prediction: BTC may go UP
+            AI Prediction : BTC may go UP
         </div>
         <br>
-        Confidence: {confidence}%
+        Confidence : {confidence}%
     </div>
     """, unsafe_allow_html=True)
 
@@ -286,10 +344,10 @@ else:
     st.markdown(f"""
     <div class="card red-card">
         <div class="indicator-title">
-            AI Prediction: BTC may go DOWN
+            AI Prediction : BTC may go DOWN
         </div>
         <br>
-        Confidence: {confidence}%
+        Confidence : {confidence}%
     </div>
     """, unsafe_allow_html=True)
 
@@ -297,7 +355,10 @@ else:
 # RSI CARD
 # =========================================================
 
-latest_rsi = round(df["RSI"].iloc[-1], 2)
+latest_rsi = round(
+    df["RSI"].iloc[-1],
+    2
+)
 
 if latest_rsi > 70:
 
@@ -330,6 +391,7 @@ st.markdown(f"""
 # =========================================================
 
 macd_value = df["MACD"].iloc[-1]
+
 signal_value = df["MACD_SIGNAL"].iloc[-1]
 
 if macd_value > signal_value:
@@ -358,7 +420,8 @@ else:
 
 st.subheader("BTC Live Candlestick Chart")
 
-tradingview_html = """
+tradingview_widget = """
+<!-- TradingView Widget BEGIN -->
 <div class="tradingview-widget-container">
   <div id="tradingview_chart"></div>
 
@@ -369,15 +432,14 @@ tradingview_html = """
 
   new TradingView.widget(
   {
-    "width": "100%",
-    "height": 700,
+    "autosize": true,
     "symbol": "BINANCE:BTCUSDT",
     "interval": "60",
     "timezone": "Asia/Kolkata",
     "theme": "dark",
     "style": "1",
     "locale": "en",
-    "toolbar_bg": "#0b1220",
+    "toolbar_bg": "#0f172a",
     "enable_publishing": false,
     "allow_symbol_change": true,
     "container_id": "tradingview_chart"
@@ -385,12 +447,14 @@ tradingview_html = """
   );
 
   </script>
+
 </div>
+<!-- TradingView Widget END -->
 """
 
 st.components.v1.html(
-    tradingview_html,
-    height=720
+    tradingview_widget,
+    height=700
 )
 
 # =========================================================
@@ -402,24 +466,28 @@ st.subheader("Main Indicators")
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
+
     st.metric(
         "RSI",
         round(df["RSI"].iloc[-1], 2)
     )
 
 with col2:
+
     st.metric(
         "MACD",
         round(df["MACD"].iloc[-1], 2)
     )
 
 with col3:
+
     st.metric(
         "ATR",
         round(df["ATR"].iloc[-1], 2)
     )
 
 with col4:
+
     st.metric(
         "Volatility",
         round(df["Volatility"].iloc[-1], 4)
@@ -492,6 +560,40 @@ rsi_fig.update_layout(
 
 st.plotly_chart(
     rsi_fig,
+    use_container_width=True
+)
+
+# =========================================================
+# MACD CHART
+# =========================================================
+
+st.subheader("MACD Chart")
+
+macd_fig = go.Figure()
+
+macd_fig.add_trace(
+    go.Scatter(
+        x=df.index,
+        y=df["MACD"],
+        name="MACD"
+    )
+)
+
+macd_fig.add_trace(
+    go.Scatter(
+        x=df.index,
+        y=df["MACD_SIGNAL"],
+        name="MACD Signal"
+    )
+)
+
+macd_fig.update_layout(
+    template="plotly_dark",
+    height=500
+)
+
+st.plotly_chart(
+    macd_fig,
     use_container_width=True
 )
 
